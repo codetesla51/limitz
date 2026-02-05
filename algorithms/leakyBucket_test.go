@@ -3,6 +3,8 @@ package algorithms
 import (
 	"testing"
 	"time"
+
+	"github.com/codetesla51/limitz/store"
 )
 
 func TestLeakyBucketAllow(t *testing.T) {
@@ -38,11 +40,8 @@ func TestLeakyBucketAllow(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lb := &LeakyBucket{
-				Capacity: tt.capacity,
-				Rate:     tt.rate,
-				Buckets:  make(map[string]*LeakyBucketUser),
-			}
+			s := store.NewMemoryStore()
+			lb := NewLeakyBucket(tt.capacity, tt.rate, s)
 
 			allowed := 0
 			for i := 0; i < tt.requests; i++ {
@@ -59,11 +58,8 @@ func TestLeakyBucketAllow(t *testing.T) {
 }
 
 func TestLeakyBucketMultipleUsers(t *testing.T) {
-	lb := &LeakyBucket{
-		Capacity: 5,
-		Rate:     2,
-		Buckets:  make(map[string]*LeakyBucketUser),
-	}
+	s := store.NewMemoryStore()
+	lb := NewLeakyBucket(5, 2, s)
 
 	// User 1 makes 3 requests
 	for i := 0; i < 3; i++ {
@@ -79,9 +75,11 @@ func TestLeakyBucketMultipleUsers(t *testing.T) {
 		}
 	}
 
-	// User 1 and 2 have independent queues
-	bucket1 := lb.Buckets["user1"]
-	bucket2 := lb.Buckets["user2"]
+	// User 1 and 2 have independent queues (check via store)
+	bucket1Data, _ := s.Get("user1")
+	bucket2Data, _ := s.Get("user2")
+	bucket1 := bucket1Data.(*LeakyBucketUser)
+	bucket2 := bucket2Data.(*LeakyBucketUser)
 
 	if bucket1.Queue != 3 {
 		t.Errorf("user1 queue: got %d, want 3", bucket1.Queue)
@@ -92,19 +90,18 @@ func TestLeakyBucketMultipleUsers(t *testing.T) {
 }
 
 func TestLeakyBucketLeakage(t *testing.T) {
-	lb := &LeakyBucket{
-		Capacity: 10,
-		Rate:     10, // 10 requests per second
-		Buckets:  make(map[string]*LeakyBucketUser),
-	}
+	s := store.NewMemoryStore()
+	lb := NewLeakyBucket(10, 10, s) // 10 requests per second
 
 	// Fill the bucket with 5 requests
 	for i := 0; i < 5; i++ {
 		lb.Allow("user1")
 	}
 
-	if lb.Buckets["user1"].Queue != 5 {
-		t.Errorf("queue before leak: got %d, want 5", lb.Buckets["user1"].Queue)
+	bucketData, _ := s.Get("user1")
+	bucket := bucketData.(*LeakyBucketUser)
+	if bucket.Queue != 5 {
+		t.Errorf("queue before leak: got %d, want 5", bucket.Queue)
 	}
 
 	// Wait 1 second (should leak 10 requests, but only 5 exist, so goes to 0)
@@ -112,25 +109,26 @@ func TestLeakyBucketLeakage(t *testing.T) {
 
 	lb.Allow("user1")
 
-	if lb.Buckets["user1"].Queue != 1 {
-		t.Errorf("queue after 1s leak: got %d, want 1", lb.Buckets["user1"].Queue)
+	bucketData, _ = s.Get("user1")
+	bucket = bucketData.(*LeakyBucketUser)
+	if bucket.Queue != 1 {
+		t.Errorf("queue after 1s leak: got %d, want 1", bucket.Queue)
 	}
 }
 
 func TestLeakyBucketReset(t *testing.T) {
-	lb := &LeakyBucket{
-		Capacity: 5,
-		Rate:     2,
-		Buckets:  make(map[string]*LeakyBucketUser),
-	}
+	s := store.NewMemoryStore()
+	lb := NewLeakyBucket(5, 2, s)
 
 	// Add some requests
 	for i := 0; i < 3; i++ {
 		lb.Allow("user1")
 	}
 
-	if lb.Buckets["user1"].Queue != 3 {
-		t.Errorf("queue before reset: got %d, want 3", lb.Buckets["user1"].Queue)
+	bucketData, _ := s.Get("user1")
+	bucket := bucketData.(*LeakyBucketUser)
+	if bucket.Queue != 3 {
+		t.Errorf("queue before reset: got %d, want 3", bucket.Queue)
 	}
 
 	// Reset
@@ -139,17 +137,16 @@ func TestLeakyBucketReset(t *testing.T) {
 		t.Errorf("reset failed: %v", err)
 	}
 
-	if lb.Buckets["user1"].Queue != 0 {
-		t.Errorf("queue after reset: got %d, want 0", lb.Buckets["user1"].Queue)
+	// After reset, user1 should not exist in store
+	_, err = s.Get("user1")
+	if err == nil {
+		t.Error("after reset, user1 should not exist in store")
 	}
 }
 
 func TestLeakyBucketResetNonexistent(t *testing.T) {
-	lb := &LeakyBucket{
-		Capacity: 5,
-		Rate:     2,
-		Buckets:  make(map[string]*LeakyBucketUser),
-	}
+	s := store.NewMemoryStore()
+	lb := NewLeakyBucket(5, 2, s)
 
 	// Try to reset nonexistent user
 	err := lb.Reset("nonexistent")
@@ -159,11 +156,8 @@ func TestLeakyBucketResetNonexistent(t *testing.T) {
 }
 
 func TestLeakyBucketConcurrency(t *testing.T) {
-	lb := &LeakyBucket{
-		Capacity: 100,
-		Rate:     10,
-		Buckets:  make(map[string]*LeakyBucketUser),
-	}
+	s := store.NewMemoryStore()
+	lb := NewLeakyBucket(100, 10, s)
 
 	// Launch 10 goroutines, each making 10 requests
 	done := make(chan bool, 10)
@@ -182,7 +176,9 @@ func TestLeakyBucketConcurrency(t *testing.T) {
 	}
 
 	// Should have exactly 100 in queue (at capacity)
-	if lb.Buckets["concurrent_user"].Queue != 100 {
-		t.Errorf("concurrent queue: got %d, want 100", lb.Buckets["concurrent_user"].Queue)
+	bucketData, _ := s.Get("concurrent_user")
+	bucket := bucketData.(*LeakyBucketUser)
+	if bucket.Queue != 100 {
+		t.Errorf("concurrent queue: got %d, want 100", bucket.Queue)
 	}
 }

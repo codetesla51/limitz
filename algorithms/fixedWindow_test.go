@@ -3,6 +3,8 @@ package algorithms
 import (
 	"testing"
 	"time"
+
+	"github.com/codetesla51/limitz/store"
 )
 
 func TestFixedWindowAllow(t *testing.T) {
@@ -34,11 +36,8 @@ func TestFixedWindowAllow(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fw := &FixedWindow{
-				Limit:      tt.limit,
-				WindowSize: 1 * time.Second,
-				Buckets:    make(map[string]*FixedWindowBucket),
-			}
+			s := store.NewMemoryStore()
+			fw := NewFixedWindow(tt.limit, 1*time.Second, s)
 
 			allowed := 0
 			for i := 0; i < tt.requests; i++ {
@@ -55,11 +54,8 @@ func TestFixedWindowAllow(t *testing.T) {
 }
 
 func TestFixedWindowMultipleUsers(t *testing.T) {
-	fw := &FixedWindow{
-		Limit:      3,
-		WindowSize: 1 * time.Second,
-		Buckets:    make(map[string]*FixedWindowBucket),
-	}
+	s := store.NewMemoryStore()
+	fw := NewFixedWindow(3, 1*time.Second, s)
 
 	// User 1 makes 3 requests
 	for i := 0; i < 3; i++ {
@@ -76,20 +72,22 @@ func TestFixedWindowMultipleUsers(t *testing.T) {
 	}
 
 	// Both should have count=3
-	if fw.Buckets["user1"].count != 3 {
-		t.Errorf("user1 count: got %d, want 3", fw.Buckets["user1"].count)
+	bucket1Data, _ := s.Get("user1")
+	bucket2Data, _ := s.Get("user2")
+	bucket1 := bucket1Data.(*FixedWindowBucket)
+	bucket2 := bucket2Data.(*FixedWindowBucket)
+
+	if bucket1.count != 3 {
+		t.Errorf("user1 count: got %d, want 3", bucket1.count)
 	}
-	if fw.Buckets["user2"].count != 3 {
-		t.Errorf("user2 count: got %d, want 3", fw.Buckets["user2"].count)
+	if bucket2.count != 3 {
+		t.Errorf("user2 count: got %d, want 3", bucket2.count)
 	}
 }
 
 func TestFixedWindowWindowReset(t *testing.T) {
-	fw := &FixedWindow{
-		Limit:      5,
-		WindowSize: 1 * time.Second,
-		Buckets:    make(map[string]*FixedWindowBucket),
-	}
+	s := store.NewMemoryStore()
+	fw := NewFixedWindow(5, 1*time.Second, s)
 
 	// Fill the window with 5 requests
 	for i := 0; i < 5; i++ {
@@ -98,8 +96,10 @@ func TestFixedWindowWindowReset(t *testing.T) {
 		}
 	}
 
-	if fw.Buckets["user1"].count != 5 {
-		t.Errorf("count before reset: got %d, want 5", fw.Buckets["user1"].count)
+	bucketData, _ := s.Get("user1")
+	bucket := bucketData.(*FixedWindowBucket)
+	if bucket.count != 5 {
+		t.Errorf("count before reset: got %d, want 5", bucket.count)
 	}
 
 	// Wait for window to change
@@ -110,25 +110,26 @@ func TestFixedWindowWindowReset(t *testing.T) {
 		t.Error("first request in new window should be allowed")
 	}
 
-	if fw.Buckets["user1"].count != 1 {
-		t.Errorf("count after reset: got %d, want 1", fw.Buckets["user1"].count)
+	bucketData, _ = s.Get("user1")
+	bucket = bucketData.(*FixedWindowBucket)
+	if bucket.count != 1 {
+		t.Errorf("count after reset: got %d, want 1", bucket.count)
 	}
 }
 
 func TestFixedWindowReset(t *testing.T) {
-	fw := &FixedWindow{
-		Limit:      5,
-		WindowSize: 1 * time.Second,
-		Buckets:    make(map[string]*FixedWindowBucket),
-	}
+	s := store.NewMemoryStore()
+	fw := NewFixedWindow(5, 1*time.Second, s)
 
 	// Add some requests
 	for i := 0; i < 3; i++ {
 		fw.Allow("user1")
 	}
 
-	if fw.Buckets["user1"].count != 3 {
-		t.Errorf("count before reset: got %d, want 3", fw.Buckets["user1"].count)
+	bucketData, _ := s.Get("user1")
+	bucket := bucketData.(*FixedWindowBucket)
+	if bucket.count != 3 {
+		t.Errorf("count before reset: got %d, want 3", bucket.count)
 	}
 
 	// Reset
@@ -137,17 +138,16 @@ func TestFixedWindowReset(t *testing.T) {
 		t.Errorf("reset failed: %v", err)
 	}
 
-	if fw.Buckets["user1"].count != 0 {
-		t.Errorf("count after reset: got %d, want 0", fw.Buckets["user1"].count)
+	// After reset, user1 should not exist in store
+	_, err = s.Get("user1")
+	if err == nil {
+		t.Error("after reset, user1 should not exist in store")
 	}
 }
 
 func TestFixedWindowResetNonexistent(t *testing.T) {
-	fw := &FixedWindow{
-		Limit:      5,
-		WindowSize: 1 * time.Second,
-		Buckets:    make(map[string]*FixedWindowBucket),
-	}
+	s := store.NewMemoryStore()
+	fw := NewFixedWindow(5, 1*time.Second, s)
 
 	// Try to reset nonexistent user
 	err := fw.Reset("nonexistent")
@@ -157,11 +157,8 @@ func TestFixedWindowResetNonexistent(t *testing.T) {
 }
 
 func TestFixedWindowConcurrency(t *testing.T) {
-	fw := &FixedWindow{
-		Limit:      100,
-		WindowSize: 1 * time.Second,
-		Buckets:    make(map[string]*FixedWindowBucket),
-	}
+	s := store.NewMemoryStore()
+	fw := NewFixedWindow(100, 1*time.Second, s)
 
 	// Launch 10 goroutines, each making 10 requests
 	done := make(chan int, 10)
@@ -190,11 +187,8 @@ func TestFixedWindowConcurrency(t *testing.T) {
 }
 
 func TestFixedWindowEdgeCase(t *testing.T) {
-	fw := &FixedWindow{
-		Limit:      1,
-		WindowSize: 1 * time.Second,
-		Buckets:    make(map[string]*FixedWindowBucket),
-	}
+	s := store.NewMemoryStore()
+	fw := NewFixedWindow(1, 1*time.Second, s)
 
 	// First request allowed
 	if !fw.Allow("user1") {

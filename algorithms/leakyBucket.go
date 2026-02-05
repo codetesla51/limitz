@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/codetesla51/limitz/store"
 )
 
 type LeakyBucketUser struct {
@@ -14,8 +16,16 @@ type LeakyBucketUser struct {
 type LeakyBucket struct {
 	Capacity int
 	Rate     int
-	Buckets  map[string]*LeakyBucketUser
+	store    store.Store
 	mu       sync.Mutex
+}
+
+func NewLeakyBucket(capacity, rate int, s store.Store) *LeakyBucket {
+	return &LeakyBucket{
+		Capacity: capacity,
+		Rate:     rate,
+		store:    s,
+	}
 }
 
 func (lb *LeakyBucket) Allow(key string) bool {
@@ -23,15 +33,20 @@ func (lb *LeakyBucket) Allow(key string) bool {
 	defer lb.mu.Unlock()
 
 	now := time.Now()
-	bucket, exists := lb.Buckets[key]
-	if !exists {
+
+	// GET bucket from store
+	bucketData, err := lb.store.Get(key)
+	var bucket *LeakyBucketUser
+	if err != nil {
 		bucket = &LeakyBucketUser{
 			Queue:    0,
 			LastLeak: now,
 		}
-		lb.Buckets[key] = bucket
+	} else {
+		bucket = bucketData.(*LeakyBucketUser)
 	}
 
+	// Calculate leakage
 	elapsed := now.Sub(bucket.LastLeak).Seconds()
 	bucket.LastLeak = now
 	leaked := int(elapsed * float64(lb.Rate))
@@ -40,24 +55,24 @@ func (lb *LeakyBucket) Allow(key string) bool {
 		bucket.Queue = 0
 	}
 
+	// Check capacity
 	if bucket.Queue < lb.Capacity {
 		bucket.Queue++
+		lb.store.Set(key, bucket, 1*time.Hour)
 		return true
 	}
+
+	lb.store.Set(key, bucket, 1*time.Hour)
 	return false
 }
 
 func (lb *LeakyBucket) Reset(key string) error {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
-	if _, exists := lb.Buckets[key]; !exists {
+
+	if !lb.store.Exists(key) {
 		return fmt.Errorf("bucket for key %s does not exist", key)
-	} else {
-		bucket := &LeakyBucketUser{
-			Queue:    0,
-			LastLeak: time.Now(),
-		}
-		lb.Buckets[key] = bucket
 	}
-	return nil
+
+	return lb.store.Delete(key)
 }

@@ -3,33 +3,32 @@ package algorithms
 import (
 	"testing"
 	"time"
+
+	"github.com/codetesla51/limitz/store"
 )
 
 // Test that a request is allowed when bucket has tokens
 func TestAllowWithTokens(t *testing.T) {
-	limiter := &TokenBucket{
-		Capacity:   5,
-		RefillRate: 2,
-		Buckets:    make(map[string]*Buckets),
-	}
+	s := store.NewMemoryStore()
+	limiter := NewTokenBucket(5, 2, s)
 
 	allowed := limiter.Allow("user-a")
 
 	if !allowed {
 		t.Error("Expected request to be allowed, but it was denied")
 	}
-	if limiter.Buckets["user-a"].tokens != 4 {
-		t.Errorf("Expected 4 tokens left, got %d", limiter.Buckets["user-a"].tokens)
+
+	bucketData, _ := s.Get("user-a")
+	bucket := bucketData.(*Buckets)
+	if bucket.tokens != 4 {
+		t.Errorf("Expected 4 tokens left, got %d", bucket.tokens)
 	}
 }
 
 // Test that a request is denied when bucket is empty
 func TestDenyWithNoTokens(t *testing.T) {
-	limiter := &TokenBucket{
-		Capacity:   5,
-		RefillRate: 2,
-		Buckets:    make(map[string]*Buckets),
-	}
+	s := store.NewMemoryStore()
+	limiter := NewTokenBucket(5, 2, s)
 
 	// Consume all tokens first
 	for i := 0; i < 5; i++ {
@@ -41,18 +40,18 @@ func TestDenyWithNoTokens(t *testing.T) {
 	if allowed {
 		t.Error("Expected request to be denied, but it was allowed")
 	}
-	if limiter.Buckets["user-a"].tokens != 0 {
-		t.Errorf("Expected 0 tokens, got %d", limiter.Buckets["user-a"].tokens)
+
+	bucketData, _ := s.Get("user-a")
+	bucket := bucketData.(*Buckets)
+	if bucket.tokens != 0 {
+		t.Errorf("Expected 0 tokens, got %d", bucket.tokens)
 	}
 }
 
 // Test consuming all tokens one by one
 func TestConsumeAllTokens(t *testing.T) {
-	limiter := &TokenBucket{
-		Capacity:   3,
-		RefillRate: 2,
-		Buckets:    make(map[string]*Buckets),
-	}
+	s := store.NewMemoryStore()
+	limiter := NewTokenBucket(3, 2, s)
 
 	// First 3 requests should pass
 	if !limiter.Allow("user-a") {
@@ -73,11 +72,8 @@ func TestConsumeAllTokens(t *testing.T) {
 
 // Test that tokens refill over time
 func TestTokenRefill(t *testing.T) {
-	limiter := &TokenBucket{
-		Capacity:   5,
-		RefillRate: 1,
-		Buckets:    make(map[string]*Buckets),
-	}
+	s := store.NewMemoryStore()
+	limiter := NewTokenBucket(5, 1, s)
 
 	// Consume all tokens
 	for i := 0; i < 5; i++ {
@@ -91,18 +87,18 @@ func TestTokenRefill(t *testing.T) {
 	if !allowed {
 		t.Error("Expected request to be allowed after refill")
 	}
-	if limiter.Buckets["user-a"].tokens != 0 {
-		t.Errorf("Expected 0 tokens left, got %d", limiter.Buckets["user-a"].tokens)
+
+	bucketData, _ := s.Get("user-a")
+	bucket := bucketData.(*Buckets)
+	if bucket.tokens != 0 {
+		t.Errorf("Expected 0 tokens left, got %d", bucket.tokens)
 	}
 }
 
 // Test that refill doesn't exceed capacity
 func TestRefillCappedAtCapacity(t *testing.T) {
-	limiter := &TokenBucket{
-		Capacity:   5,
-		RefillRate: 10,
-		Buckets:    make(map[string]*Buckets),
-	}
+	s := store.NewMemoryStore()
+	limiter := NewTokenBucket(5, 10, s)
 
 	// Create bucket with 3 tokens
 	limiter.Allow("user-a")
@@ -112,18 +108,17 @@ func TestRefillCappedAtCapacity(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	limiter.Allow("user-a")
 
-	if limiter.Buckets["user-a"].tokens > limiter.Capacity {
-		t.Errorf("Tokens (%d) exceeded capacity (%d)", limiter.Buckets["user-a"].tokens, limiter.Capacity)
+	bucketData, _ := s.Get("user-a")
+	bucket := bucketData.(*Buckets)
+	if bucket.tokens > limiter.Capacity {
+		t.Errorf("Tokens (%d) exceeded capacity (%d)", bucket.tokens, limiter.Capacity)
 	}
 }
 
 // Test reset function
 func TestReset(t *testing.T) {
-	limiter := &TokenBucket{
-		Capacity:   5,
-		RefillRate: 2,
-		Buckets:    make(map[string]*Buckets),
-	}
+	s := store.NewMemoryStore()
+	limiter := NewTokenBucket(5, 2, s)
 
 	// Consume all tokens
 	for i := 0; i < 5; i++ {
@@ -136,18 +131,18 @@ func TestReset(t *testing.T) {
 	if err != nil {
 		t.Errorf("Reset should not return error: %v", err)
 	}
-	if limiter.Buckets["user-a"].tokens != limiter.Capacity {
-		t.Errorf("Expected tokens to reset to %d, got %d", limiter.Capacity, limiter.Buckets["user-a"].tokens)
+
+	// After reset, user-a should not exist in store
+	_, err = s.Get("user-a")
+	if err == nil {
+		t.Error("after reset, user-a should not exist in store")
 	}
 }
 
 // Test with burst of requests
 func TestBurstRequests(t *testing.T) {
-	limiter := &TokenBucket{
-		Capacity:   10,
-		RefillRate: 1,
-		Buckets:    make(map[string]*Buckets),
-	}
+	s := store.NewMemoryStore()
+	limiter := NewTokenBucket(10, 1, s)
 
 	// Fire 10 requests rapidly
 	for i := 0; i < 10; i++ {
@@ -161,18 +156,17 @@ func TestBurstRequests(t *testing.T) {
 		t.Error("11th request should be denied")
 	}
 
-	if limiter.Buckets["user-a"].tokens != 0 {
-		t.Errorf("Expected 0 tokens, got %d", limiter.Buckets["user-a"].tokens)
+	bucketData, _ := s.Get("user-a")
+	bucket := bucketData.(*Buckets)
+	if bucket.tokens != 0 {
+		t.Errorf("Expected 0 tokens, got %d", bucket.tokens)
 	}
 }
 
 // Test realistic scenario: 5 token capacity, 1 token per second refill
 func TestRealisticRateLimiting(t *testing.T) {
-	limiter := &TokenBucket{
-		Capacity:   5,
-		RefillRate: 1,
-		Buckets:    make(map[string]*Buckets),
-	}
+	s := store.NewMemoryStore()
+	limiter := NewTokenBucket(5, 1, s)
 
 	// Can do 5 requests immediately
 	for i := 0; i < 5; i++ {
@@ -205,11 +199,8 @@ func TestRealisticRateLimiting(t *testing.T) {
 
 // Test separate keys have separate Buckets
 func TestSeparateKeysHaveSeparateBuckets(t *testing.T) {
-	limiter := &TokenBucket{
-		Capacity:   3,
-		RefillRate: 1,
-		Buckets:    make(map[string]*Buckets),
-	}
+	s := store.NewMemoryStore()
+	limiter := NewTokenBucket(3, 1, s)
 
 	// User A consumes all tokens
 	for i := 0; i < 3; i++ {
@@ -226,7 +217,9 @@ func TestSeparateKeysHaveSeparateBuckets(t *testing.T) {
 		t.Error("User B should not be rate limited")
 	}
 
-	if limiter.Buckets["user-b"].tokens != 2 {
-		t.Errorf("User B should have 2 tokens, got %d", limiter.Buckets["user-b"].tokens)
+	bucketData, _ := s.Get("user-b")
+	bucket := bucketData.(*Buckets)
+	if bucket.tokens != 2 {
+		t.Errorf("User B should have 2 tokens, got %d", bucket.tokens)
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/codetesla51/limitz/store"
 )
 
 type FixedWindowBucket struct {
@@ -14,23 +16,37 @@ type FixedWindowBucket struct {
 type FixedWindow struct {
 	Limit      int
 	WindowSize time.Duration
-	Buckets    map[string]*FixedWindowBucket
+	store      store.Store
 	mu         sync.Mutex
+}
+
+func NewFixedWindow(limit int, windowSize time.Duration, s store.Store) *FixedWindow {
+	if windowSize <= 0 {
+		panic("windowSize must be greater than 0")
+	}
+	return &FixedWindow{
+		Limit:      limit,
+		WindowSize: windowSize,
+		store:      s,
+	}
 }
 
 func (fw *FixedWindow) Allow(key string) bool {
 
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
-	bucket, exists := fw.Buckets[key]
-	if !exists {
+
+	now := time.Now().Unix()
+	fixedWindowData, err := fw.store.Get(key)
+	var bucket *FixedWindowBucket
+	if err != nil {
 		bucket = &FixedWindowBucket{
 			count:  0,
 			window: 0,
 		}
-		fw.Buckets[key] = bucket
+	} else {
+		bucket = fixedWindowData.(*FixedWindowBucket)
 	}
-	now := time.Now().Unix()
 	currentWindow := int(now / int64(fw.WindowSize.Seconds()))
 	if currentWindow != bucket.window {
 		bucket.window = currentWindow
@@ -38,21 +54,18 @@ func (fw *FixedWindow) Allow(key string) bool {
 	}
 	bucket.count++
 	if bucket.count > fw.Limit {
+		fw.store.Set(key, bucket, fw.WindowSize)
 		return false
 	}
+	fw.store.Set(key, bucket, fw.WindowSize)
+
 	return true
 }
 func (fw *FixedWindow) Reset(key string) error {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
-	_, exists := fw.Buckets[key]
-	if !exists {
+	if !fw.store.Exists(key) {
 		return fmt.Errorf("bucket for key %s does not exist", key)
 	}
-	bucket := &FixedWindowBucket{
-		count:  0,
-		window: 0,
-	}
-	fw.Buckets[key] = bucket
-	return nil
+	return fw.store.Delete(key)
 }

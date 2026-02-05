@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/codetesla51/limitz/store"
 )
 
-type Storage interface{}
 type Buckets struct {
 	tokens       int
 	lastRefillTs time.Time
@@ -15,10 +16,17 @@ type Buckets struct {
 type TokenBucket struct {
 	Capacity   int
 	RefillRate int
-	Buckets    map[string]*Buckets
+	store      store.Store
 	mu         sync.Mutex
 }
 
+func NewTokenBucket(capacity, refillRate int, s store.Store) *TokenBucket {
+	return &TokenBucket{
+		Capacity:   capacity,
+		RefillRate: refillRate,
+		store:      s,
+	}
+}
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -31,13 +39,15 @@ func (tb *TokenBucket) Allow(key string) bool {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
 	now := time.Now()
-	bucket, exists := tb.Buckets[key]
-	if !exists {
+	tokenBucketData, err := tb.store.Get(key)
+	var bucket *Buckets
+	if err != nil {
 		bucket = &Buckets{
 			tokens:       tb.Capacity,
 			lastRefillTs: now,
 		}
-		tb.Buckets[key] = bucket
+	} else {
+		bucket = tokenBucketData.(*Buckets)
 	}
 	// Refill tokens based on elapsed time
 	timePassed := now.Sub(bucket.lastRefillTs)
@@ -45,20 +55,24 @@ func (tb *TokenBucket) Allow(key string) bool {
 	tokensToAdd = min(tokensToAdd, tb.Capacity-bucket.tokens)
 	bucket.tokens += tokensToAdd
 	bucket.lastRefillTs = now
+
+	// Check capacity
 	if bucket.tokens > 0 {
 		bucket.tokens--
+		// SAVE back to store
+		tb.store.Set(key, bucket, 1*time.Hour)
 		return true
 	}
+
+	// SAVE even if denied
+	tb.store.Set(key, bucket, 1*time.Hour)
 	return false
 }
 func (tb *TokenBucket) Reset(key string) error {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	bucket, exists := tb.Buckets[key]
-	if !exists {
+	if !tb.store.Exists(key) {
 		return fmt.Errorf("bucket for key %s does not exist", key)
 	}
-	bucket.tokens = tb.Capacity
-	bucket.lastRefillTs = time.Now()
-	return nil
+	return tb.store.Delete(key)
 }
