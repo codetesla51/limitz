@@ -2,22 +2,21 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/codetesla51/limitz/algorithms"
+	"github.com/codetesla51/limitz/store"
 )
 
 func main() {
-	lb := &algorithms.LeakyBucket{
-		Capacity: 5,
-		Rate:     5,
-		Buckets:  make(map[string]*algorithms.LeakyBucketUser),
-	}
+	m := store.NewMemoryStore()
+	fw := algorithms.NewFixedWindow(5, 1*time.Second, m)
 	for i := 0; i < 10; i++ {
-		if lb.Allow("user1") {
-			fmt.Printf("allow request for %+v\n", lb.Buckets["user1"])
+		if fw.Allow("user1") {
+			fmt.Println("Request", i+1, "allowed")
 		} else {
-			fmt.Println("deny request")
+			fmt.Println("Request", i+1, "denied")
 		}
-
 	}
+
 }
