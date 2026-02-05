@@ -10,12 +10,20 @@ import (
 
 func main() {
 	m := store.NewMemoryStore()
-	fw := algorithms.NewFixedWindow(5, 1*time.Second, m)
-	for i := 0; i < 10; i++ {
-		if fw.Allow("user1") {
-			fmt.Println("Request", i+1, "allowed")
+	sw := algorithms.NewSlidingWindow(5, 10*time.Second, m)
+
+	userID := "user123"
+
+	for i := 1; i <= 20; i++ {
+		allowed := sw.Allow(userID)
+		if allowed {
+			fmt.Printf("Request %d for %s: Allowed\n", i, userID)
 		} else {
-			fmt.Println("Request", i+1, "denied")
+			fmt.Printf("Request %d for %s: Denied\n", i, userID)
+		}
+		time.Sleep(200 * time.Millisecond)
+		if i == 5 {
+			time.Sleep(11 * time.Second) // Wait to reset the window
 		}
 	}
 
