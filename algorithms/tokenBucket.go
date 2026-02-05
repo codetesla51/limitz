@@ -1,6 +1,7 @@
 package algorithms
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -35,7 +36,7 @@ func min(a, b int) int {
 }
 
 // allow checks if a request is allowed using token bucket rate limiting.
-func (tb *TokenBucket) Allow(key string) bool {
+func (tb *TokenBucket) Allow(key string) (Result, error) {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
 	now := time.Now()
@@ -47,7 +48,18 @@ func (tb *TokenBucket) Allow(key string) bool {
 			lastRefillTs: now,
 		}
 	} else {
-		bucket = tokenBucketData.(*Buckets)
+		// Handle both MemoryStore (returns struct) and RedisStore (returns JSON string)
+		switch v := tokenBucketData.(type) {
+		case *Buckets:
+			bucket = v
+		case string:
+			bucket = &Buckets{}
+			if err := json.Unmarshal([]byte(v), bucket); err != nil {
+				bucket = &Buckets{tokens: tb.Capacity, lastRefillTs: now}
+			}
+		default:
+			bucket = &Buckets{tokens: tb.Capacity, lastRefillTs: now}
+		}
 	}
 	// Refill tokens based on elapsed time
 	timePassed := now.Sub(bucket.lastRefillTs)
@@ -60,13 +72,30 @@ func (tb *TokenBucket) Allow(key string) bool {
 	if bucket.tokens > 0 {
 		bucket.tokens--
 		// SAVE back to store
-		tb.store.Set(key, bucket, 1*time.Hour)
-		return true
+		err := tb.store.Set(key, bucket, 1*time.Hour)
+		if err != nil {
+			return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
+		}
+		return Result{
+			Allowed:    true,
+			Limit:      tb.Capacity,
+			Remaining:  bucket.tokens,
+			RetryAfter: 0,
+		}, nil
+
 	}
 
 	// SAVE even if denied
-	tb.store.Set(key, bucket, 1*time.Hour)
-	return false
+	err = tb.store.Set(key, bucket, 1*time.Hour)
+	if err != nil {
+		return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
+	}
+	return Result{
+		Allowed:    false,
+		Limit:      tb.Capacity,
+		Remaining:  bucket.tokens,
+		RetryAfter: time.Duration(float64(time.Second) / float64(tb.RefillRate)),
+	}, nil
 }
 func (tb *TokenBucket) Reset(key string) error {
 	tb.mu.Lock()

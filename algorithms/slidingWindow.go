@@ -1,6 +1,7 @@
 package algorithms
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -32,7 +33,7 @@ func NewSlidingWindow(limit int, windowSize time.Duration, s store.Store) *Slidi
 }
 
 // Allow checks if a request is allowed under sliding window rate limit
-func (sw *SlidingWindow) Allow(key string) bool {
+func (sw *SlidingWindow) Allow(key string) (Result, error) {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
@@ -46,7 +47,18 @@ func (sw *SlidingWindow) Allow(key string) bool {
 			Timestamps: []int64{},
 		}
 	} else {
-		bucket = bucketData.(*SlidingWindowBucket)
+		// Handle both MemoryStore (returns struct) and RedisStore (returns JSON string)
+		switch v := bucketData.(type) {
+		case *SlidingWindowBucket:
+			bucket = v
+		case string:
+			bucket = &SlidingWindowBucket{}
+			if err := json.Unmarshal([]byte(v), bucket); err != nil {
+				bucket = &SlidingWindowBucket{Timestamps: []int64{}}
+			}
+		default:
+			bucket = &SlidingWindowBucket{Timestamps: []int64{}}
+		}
 	}
 
 	validTimestamps := []int64{}
@@ -60,11 +72,25 @@ func (sw *SlidingWindow) Allow(key string) bool {
 	if len(bucket.Timestamps) < sw.Limit {
 		bucket.Timestamps = append(bucket.Timestamps, now)
 		sw.store.Set(key, bucket, sw.WindowSize)
-		return true
+		return Result{
+			Allowed:    true,
+			Limit:      sw.Limit,
+			Remaining:  sw.Limit - len(bucket.Timestamps),
+			RetryAfter: 0,
+		}, nil
 	}
 
+	oldestTimestamp := bucket.Timestamps[0]
+	timeSinceOldest := now - oldestTimestamp
+	retryAfter := time.Duration(sw.WindowSize.Nanoseconds() - timeSinceOldest)
+
 	sw.store.Set(key, bucket, sw.WindowSize)
-	return false
+	return Result{
+		Allowed:    false,
+		Limit:      sw.Limit,
+		Remaining:  0,
+		RetryAfter: retryAfter,
+	}, nil
 }
 
 func (sw *SlidingWindow) Reset(key string) error {

@@ -41,7 +41,8 @@ func TestFixedWindowAllow(t *testing.T) {
 
 			allowed := 0
 			for i := 0; i < tt.requests; i++ {
-				if fw.Allow("user1") {
+				result, err := fw.Allow("user1")
+				if err == nil && result.Allowed {
 					allowed++
 				}
 			}
@@ -59,14 +60,16 @@ func TestFixedWindowMultipleUsers(t *testing.T) {
 
 	// User 1 makes 3 requests
 	for i := 0; i < 3; i++ {
-		if !fw.Allow("user1") {
+		result, err := fw.Allow("user1")
+		if err != nil || !result.Allowed {
 			t.Errorf("user1 request %d should be allowed", i+1)
 		}
 	}
 
 	// User 2 makes 3 requests (different user, separate bucket)
 	for i := 0; i < 3; i++ {
-		if !fw.Allow("user2") {
+		result, err := fw.Allow("user2")
+		if err != nil || !result.Allowed {
 			t.Errorf("user2 request %d should be allowed", i+1)
 		}
 	}
@@ -91,7 +94,8 @@ func TestFixedWindowWindowReset(t *testing.T) {
 
 	// Fill the window with 5 requests
 	for i := 0; i < 5; i++ {
-		if !fw.Allow("user1") {
+		result, err := fw.Allow("user1")
+		if err != nil || !result.Allowed {
 			t.Errorf("request %d should be allowed", i+1)
 		}
 	}
@@ -106,7 +110,8 @@ func TestFixedWindowWindowReset(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Next request should be allowed with reset count
-	if !fw.Allow("user1") {
+	result, err := fw.Allow("user1")
+	if err != nil || !result.Allowed {
 		t.Error("first request in new window should be allowed")
 	}
 
@@ -123,7 +128,7 @@ func TestFixedWindowReset(t *testing.T) {
 
 	// Add some requests
 	for i := 0; i < 3; i++ {
-		fw.Allow("user1")
+		_, _ = fw.Allow("user1")
 	}
 
 	bucketData, _ := s.Get("user1")
@@ -166,7 +171,8 @@ func TestFixedWindowConcurrency(t *testing.T) {
 		go func(id int) {
 			count := 0
 			for j := 0; j < 10; j++ {
-				if fw.Allow("concurrent_user") {
+				result, err := fw.Allow("concurrent_user")
+				if err == nil && result.Allowed {
 					count++
 				}
 			}
@@ -191,12 +197,14 @@ func TestFixedWindowEdgeCase(t *testing.T) {
 	fw := NewFixedWindow(1, 1*time.Second, s)
 
 	// First request allowed
-	if !fw.Allow("user1") {
+	result1, err1 := fw.Allow("user1")
+	if err1 != nil || !result1.Allowed {
 		t.Error("first request should be allowed")
 	}
 
 	// Second request denied (at limit)
-	if fw.Allow("user1") {
+	result2, err2 := fw.Allow("user1")
+	if err2 == nil && result2.Allowed {
 		t.Error("second request should be denied")
 	}
 
@@ -204,7 +212,8 @@ func TestFixedWindowEdgeCase(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Next request allowed (new window)
-	if !fw.Allow("user1") {
+	result3, err3 := fw.Allow("user1")
+	if err3 != nil || !result3.Allowed {
 		t.Error("first request in new window should be allowed")
 	}
 }

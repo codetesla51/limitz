@@ -12,9 +12,12 @@ func TestAllowWithTokens(t *testing.T) {
 	s := store.NewMemoryStore()
 	limiter := NewTokenBucket(5, 2, s)
 
-	allowed := limiter.Allow("user-a")
+	result, err := limiter.Allow("user-a")
+	if err != nil {
+		t.Fatalf("Allow returned error: %v", err)
+	}
 
-	if !allowed {
+	if !result.Allowed {
 		t.Error("Expected request to be allowed, but it was denied")
 	}
 
@@ -32,12 +35,15 @@ func TestDenyWithNoTokens(t *testing.T) {
 
 	// Consume all tokens first
 	for i := 0; i < 5; i++ {
-		limiter.Allow("user-a")
+		_, _ = limiter.Allow("user-a")
 	}
 
-	allowed := limiter.Allow("user-a")
+	result, err := limiter.Allow("user-a")
+	if err != nil {
+		t.Fatalf("Allow returned error: %v", err)
+	}
 
-	if allowed {
+	if result.Allowed {
 		t.Error("Expected request to be denied, but it was allowed")
 	}
 
@@ -54,18 +60,22 @@ func TestConsumeAllTokens(t *testing.T) {
 	limiter := NewTokenBucket(3, 2, s)
 
 	// First 3 requests should pass
-	if !limiter.Allow("user-a") {
+	result1, err1 := limiter.Allow("user-a")
+	if err1 != nil || !result1.Allowed {
 		t.Error("Request 1 should be allowed")
 	}
-	if !limiter.Allow("user-a") {
+	result2, err2 := limiter.Allow("user-a")
+	if err2 != nil || !result2.Allowed {
 		t.Error("Request 2 should be allowed")
 	}
-	if !limiter.Allow("user-a") {
+	result3, err3 := limiter.Allow("user-a")
+	if err3 != nil || !result3.Allowed {
 		t.Error("Request 3 should be allowed")
 	}
 
 	// 4th request should fail
-	if limiter.Allow("user-a") {
+	result4, err4 := limiter.Allow("user-a")
+	if err4 != nil || result4.Allowed {
 		t.Error("Request 4 should be denied")
 	}
 }
@@ -77,14 +87,17 @@ func TestTokenRefill(t *testing.T) {
 
 	// Consume all tokens
 	for i := 0; i < 5; i++ {
-		limiter.Allow("user-a")
+		_, _ = limiter.Allow("user-a")
 	}
 
 	// Wait 1 second, should add 1 token
 	time.Sleep(1 * time.Second)
-	allowed := limiter.Allow("user-a")
+	result, err := limiter.Allow("user-a")
+	if err != nil {
+		t.Fatalf("Allow returned error: %v", err)
+	}
 
-	if !allowed {
+	if !result.Allowed {
 		t.Error("Expected request to be allowed after refill")
 	}
 
@@ -101,12 +114,12 @@ func TestRefillCappedAtCapacity(t *testing.T) {
 	limiter := NewTokenBucket(5, 10, s)
 
 	// Create bucket with 3 tokens
-	limiter.Allow("user-a")
-	limiter.Allow("user-a")
+	_, _ = limiter.Allow("user-a")
+	_, _ = limiter.Allow("user-a")
 
 	// Wait 1 second, would add 10 tokens but capped at 5
 	time.Sleep(1 * time.Second)
-	limiter.Allow("user-a")
+	_, _ = limiter.Allow("user-a")
 
 	bucketData, _ := s.Get("user-a")
 	bucket := bucketData.(*Buckets)
@@ -122,7 +135,7 @@ func TestReset(t *testing.T) {
 
 	// Consume all tokens
 	for i := 0; i < 5; i++ {
-		limiter.Allow("user-a")
+		_, _ = limiter.Allow("user-a")
 	}
 
 	// Reset
@@ -146,13 +159,15 @@ func TestBurstRequests(t *testing.T) {
 
 	// Fire 10 requests rapidly
 	for i := 0; i < 10; i++ {
-		if !limiter.Allow("user-a") {
+		result, err := limiter.Allow("user-a")
+		if err != nil || !result.Allowed {
 			t.Errorf("Request %d should be allowed", i+1)
 		}
 	}
 
 	// 11th should fail
-	if limiter.Allow("user-a") {
+	result11, err11 := limiter.Allow("user-a")
+	if err11 != nil || result11.Allowed {
 		t.Error("11th request should be denied")
 	}
 
@@ -170,13 +185,15 @@ func TestRealisticRateLimiting(t *testing.T) {
 
 	// Can do 5 requests immediately
 	for i := 0; i < 5; i++ {
-		if !limiter.Allow("user-a") {
+		result, err := limiter.Allow("user-a")
+		if err != nil || !result.Allowed {
 			t.Errorf("Request %d should pass", i+1)
 		}
 	}
 
 	// 6th request fails (no tokens)
-	if limiter.Allow("user-a") {
+	result6, err6 := limiter.Allow("user-a")
+	if err6 != nil || result6.Allowed {
 		t.Error("6th request should fail")
 	}
 
@@ -184,15 +201,18 @@ func TestRealisticRateLimiting(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Can now do 2 more requests
-	if !limiter.Allow("user-a") {
+	result7, err7 := limiter.Allow("user-a")
+	if err7 != nil || !result7.Allowed {
 		t.Error("Request after 2sec wait should pass")
 	}
-	if !limiter.Allow("user-a") {
+	result8, err8 := limiter.Allow("user-a")
+	if err8 != nil || !result8.Allowed {
 		t.Error("2nd request after wait should pass")
 	}
 
 	// 3rd request after wait should fail
-	if limiter.Allow("user-a") {
+	result9, err9 := limiter.Allow("user-a")
+	if err9 != nil || result9.Allowed {
 		t.Error("3rd request after wait should fail")
 	}
 }
@@ -204,16 +224,18 @@ func TestSeparateKeysHaveSeparateBuckets(t *testing.T) {
 
 	// User A consumes all tokens
 	for i := 0; i < 3; i++ {
-		limiter.Allow("user-a")
+		_, _ = limiter.Allow("user-a")
 	}
 
 	// User A should be rate limited
-	if limiter.Allow("user-a") {
+	resultA, errA := limiter.Allow("user-a")
+	if errA != nil || resultA.Allowed {
 		t.Error("User A should be rate limited")
 	}
 
 	// But user B should still have full capacity
-	if !limiter.Allow("user-b") {
+	resultB, errB := limiter.Allow("user-b")
+	if errB != nil || !resultB.Allowed {
 		t.Error("User B should not be rate limited")
 	}
 

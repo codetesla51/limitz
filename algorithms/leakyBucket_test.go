@@ -45,7 +45,8 @@ func TestLeakyBucketAllow(t *testing.T) {
 
 			allowed := 0
 			for i := 0; i < tt.requests; i++ {
-				if lb.Allow("user1") {
+				result, err := lb.Allow("user1")
+				if err == nil && result.Allowed {
 					allowed++
 				}
 			}
@@ -63,14 +64,16 @@ func TestLeakyBucketMultipleUsers(t *testing.T) {
 
 	// User 1 makes 3 requests
 	for i := 0; i < 3; i++ {
-		if !lb.Allow("user1") {
+		result, err := lb.Allow("user1")
+		if err != nil || !result.Allowed {
 			t.Errorf("user1 request %d should be allowed", i+1)
 		}
 	}
 
 	// User 2 makes 2 requests (different user, separate bucket)
 	for i := 0; i < 2; i++ {
-		if !lb.Allow("user2") {
+		result, err := lb.Allow("user2")
+		if err != nil || !result.Allowed {
 			t.Errorf("user2 request %d should be allowed", i+1)
 		}
 	}
@@ -95,7 +98,7 @@ func TestLeakyBucketLeakage(t *testing.T) {
 
 	// Fill the bucket with 5 requests
 	for i := 0; i < 5; i++ {
-		lb.Allow("user1")
+		_, _ = lb.Allow("user1")
 	}
 
 	bucketData, _ := s.Get("user1")
@@ -107,7 +110,7 @@ func TestLeakyBucketLeakage(t *testing.T) {
 	// Wait 1 second (should leak 10 requests, but only 5 exist, so goes to 0)
 	time.Sleep(1 * time.Second)
 
-	lb.Allow("user1")
+	_, _ = lb.Allow("user1")
 
 	bucketData, _ = s.Get("user1")
 	bucket = bucketData.(*LeakyBucketUser)
@@ -122,7 +125,7 @@ func TestLeakyBucketReset(t *testing.T) {
 
 	// Add some requests
 	for i := 0; i < 3; i++ {
-		lb.Allow("user1")
+		_, _ = lb.Allow("user1")
 	}
 
 	bucketData, _ := s.Get("user1")
@@ -164,7 +167,7 @@ func TestLeakyBucketConcurrency(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func(id int) {
 			for j := 0; j < 10; j++ {
-				lb.Allow("concurrent_user")
+				_, _ = lb.Allow("concurrent_user")
 			}
 			done <- true
 		}(i)

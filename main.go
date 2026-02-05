@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/codetesla51/limitz/algorithms"
 	"github.com/codetesla51/limitz/store"
@@ -10,21 +9,14 @@ import (
 
 func main() {
 	m := store.NewMemoryStore()
-	sw := algorithms.NewSlidingWindow(5, 10*time.Second, m)
-
-	userID := "user123"
-
-	for i := 1; i <= 20; i++ {
-		allowed := sw.Allow(userID)
-		if allowed {
-			fmt.Printf("Request %d for %s: Allowed\n", i, userID)
-		} else {
-			fmt.Printf("Request %d for %s: Denied\n", i, userID)
+	for i := 0; i < 7; i++ {
+		result, err := algorithms.NewTokenBucket(5, 1, m).Allow("user1")
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
 		}
-		time.Sleep(200 * time.Millisecond)
-		if i == 5 {
-			time.Sleep(11 * time.Second) // Wait to reset the window
-		}
+
+		fmt.Printf("Allowed: %v, Limit: %d, Remaining: %d, RetryAfter: %v\n",
+			result.Allowed, result.Limit, result.Remaining, result.RetryAfter)
 	}
-
 }
