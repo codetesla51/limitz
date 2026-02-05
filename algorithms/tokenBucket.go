@@ -18,10 +18,6 @@ type TokenBucket struct {
 	Buckets    map[string]*Buckets
 	mu         sync.Mutex
 }
-type RateLimiter interface {
-	Allow(key string) bool
-	Reset(key string) error
-}
 
 func min(a, b int) int {
 	if a < b {

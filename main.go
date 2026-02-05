@@ -1,28 +1,23 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/codetesla51/limitz/algorithms"
 )
 
 func main() {
-	tb := &algorithms.TokenBucket{
-		Capacity:   3,
-		RefillRate: 0,
-		Buckets:    map[string]*algorithms.Buckets{},
+	lb := &algorithms.LeakyBucket{
+		Capacity: 5,
+		Rate:     5,
+		Buckets:  make(map[string]*algorithms.LeakyBucketUser),
 	}
-	for i := 0; i < 5; i++ {
-		allowed := tb.Allow("user123")
-		if allowed {
-			println("Request", i+1, "allowed for user123")
+	for i := 0; i < 10; i++ {
+		if lb.Allow("user1") {
+			fmt.Printf("allow request for %+v\n", lb.Buckets["user1"])
 		} else {
-			println("Request", i+1, "denied for user123")
+			fmt.Println("deny request")
 		}
-		err := tb.Reset("user123")
-		if err != nil {
-			println("Error resetting token bucket:", err.Error())
-		} else {
-			println("Token bucket reset for user123")
-		}
-	}
 
+	}
 }
