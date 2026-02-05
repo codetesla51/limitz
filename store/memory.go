@@ -87,7 +87,6 @@ func (ms *MemoryStore) Exists(key string) bool {
 	return true
 }
 
-// Background cleanup of expired entries (runs every 5 minutes)
 func (ms *MemoryStore) cleanupExpired() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()

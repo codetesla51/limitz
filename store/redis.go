@@ -9,15 +9,11 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// RedisStore implements Store interface using Redis as backend
-// This allows sharing rate limit state across multiple servers
 type RedisStore struct {
 	client *redis.Client
 	ctx    context.Context
 }
 
-// NewRedisStore creates a new Redis-backed store
-// addr format: "localhost:6379"
 func NewRedisStore(addr string) (*RedisStore, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr: addr,
@@ -35,8 +31,6 @@ func NewRedisStore(addr string) (*RedisStore, error) {
 	}, nil
 }
 
-// Get retrieves a value from Redis
-// Since Redis stores strings, we JSON-encode/decode the value
 func (r *RedisStore) Get(key string) (interface{}, error) {
 	val, err := r.client.Get(r.ctx, key).Result()
 	if err == redis.Nil {
@@ -47,8 +41,6 @@ func (r *RedisStore) Get(key string) (interface{}, error) {
 		return nil, err
 	}
 
-	// Redis stores it as JSON string, we get back the raw string
-	// Caller will unmarshal/type-assert based on their needs
 	return val, nil
 }
 

@@ -11,18 +11,15 @@ import (
 
 // RateLimitEntry represents a row in the database
 type RateLimitEntry struct {
-	Key       string    `gorm:"primaryKey"`
-	Value     string    // JSON string
-	ExpiresAt time.Time // For auto-expiration
+	Key       string `gorm:"primaryKey"`
+	Value     string
+	ExpiresAt time.Time
 }
 
-// DatabaseStore implements Store interface using PostgreSQL
 type DatabaseStore struct {
 	db *gorm.DB
 }
 
-// NewDatabaseStore creates a new database-backed store
-// dsn format: "host=localhost user=postgres password=password dbname=ratelib port=5432 sslmode=disable"
 func NewDatabaseStore(dsn string) (*DatabaseStore, error) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -93,8 +90,6 @@ func (ds *DatabaseStore) Exists(key string) bool {
 	return count > 0
 }
 
-// CleanupExpired removes expired entries from database
-// Run this periodically in a goroutine
 func (ds *DatabaseStore) CleanupExpired() error {
 	return ds.db.Delete(&RateLimitEntry{}, "expires_at <= ?", time.Now()).Error
 }
