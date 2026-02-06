@@ -23,8 +23,8 @@ func TestAllowWithTokens(t *testing.T) {
 
 	bucketData, _ := s.Get("user-a")
 	bucket := bucketData.(*Buckets)
-	if bucket.tokens != 4 {
-		t.Errorf("Expected 4 tokens left, got %d", bucket.tokens)
+	if bucket.Tokens != 4 {
+		t.Errorf("Expected 4 tokens left, got %d", bucket.Tokens)
 	}
 }
 
@@ -49,8 +49,8 @@ func TestDenyWithNoTokens(t *testing.T) {
 
 	bucketData, _ := s.Get("user-a")
 	bucket := bucketData.(*Buckets)
-	if bucket.tokens != 0 {
-		t.Errorf("Expected 0 tokens, got %d", bucket.tokens)
+	if bucket.Tokens != 0 {
+		t.Errorf("Expected 0 tokens, got %d", bucket.Tokens)
 	}
 }
 
@@ -103,8 +103,8 @@ func TestTokenRefill(t *testing.T) {
 
 	bucketData, _ := s.Get("user-a")
 	bucket := bucketData.(*Buckets)
-	if bucket.tokens != 0 {
-		t.Errorf("Expected 0 tokens left, got %d", bucket.tokens)
+	if bucket.Tokens != 0 {
+		t.Errorf("Expected 0 tokens left, got %d", bucket.Tokens)
 	}
 }
 
@@ -123,8 +123,8 @@ func TestRefillCappedAtCapacity(t *testing.T) {
 
 	bucketData, _ := s.Get("user-a")
 	bucket := bucketData.(*Buckets)
-	if bucket.tokens > limiter.Capacity {
-		t.Errorf("Tokens (%d) exceeded capacity (%d)", bucket.tokens, limiter.Capacity)
+	if bucket.Tokens > limiter.Capacity {
+		t.Errorf("Tokens (%d) exceeded capacity (%d)", bucket.Tokens, limiter.Capacity)
 	}
 }
 
@@ -173,8 +173,8 @@ func TestBurstRequests(t *testing.T) {
 
 	bucketData, _ := s.Get("user-a")
 	bucket := bucketData.(*Buckets)
-	if bucket.tokens != 0 {
-		t.Errorf("Expected 0 tokens, got %d", bucket.tokens)
+	if bucket.Tokens != 0 {
+		t.Errorf("Expected 0 tokens, got %d", bucket.Tokens)
 	}
 }
 
@@ -241,7 +241,7 @@ func TestSeparateKeysHaveSeparateBuckets(t *testing.T) {
 
 	bucketData, _ := s.Get("user-b")
 	bucket := bucketData.(*Buckets)
-	if bucket.tokens != 2 {
-		t.Errorf("User B should have 2 tokens, got %d", bucket.tokens)
+	if bucket.Tokens != 2 {
+		t.Errorf("User B should have 2 tokens, got %d", bucket.Tokens)
 	}
 }

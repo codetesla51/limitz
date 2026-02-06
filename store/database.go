@@ -21,6 +21,10 @@ type DatabaseStore struct {
 }
 
 func NewDatabaseStore(dsn string) (*DatabaseStore, error) {
+	if dsn == "" {
+		return nil, fmt.Errorf("database DSN cannot be empty")
+	}
+
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
@@ -41,6 +45,10 @@ func NewDatabaseStore(dsn string) (*DatabaseStore, error) {
 
 // Get retrieves a value from database
 func (ds *DatabaseStore) Get(key string) (interface{}, error) {
+	if key == "" {
+		return nil, fmt.Errorf("key cannot be empty")
+	}
+
 	var entry RateLimitEntry
 
 	// Query and check if expired
@@ -50,7 +58,7 @@ func (ds *DatabaseStore) Get(key string) (interface{}, error) {
 		return nil, fmt.Errorf("key not found")
 	}
 	if result.Error != nil {
-		return nil, result.Error
+		return nil, fmt.Errorf("database Get error: %w", result.Error)
 	}
 
 	// Return the JSON string (caller will unmarshal)
@@ -59,10 +67,20 @@ func (ds *DatabaseStore) Get(key string) (interface{}, error) {
 
 // Set stores a value in database with TTL
 func (ds *DatabaseStore) Set(key string, value interface{}, ttl time.Duration) error {
+	if key == "" {
+		return fmt.Errorf("key cannot be empty")
+	}
+	if value == nil {
+		return fmt.Errorf("value cannot be nil")
+	}
+	if ttl <= 0 {
+		return fmt.Errorf("TTL must be greater than 0")
+	}
+
 	// Convert value to JSON string
 	jsonData, err := json.Marshal(value)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal value: %w", err)
 	}
 
 	entry := RateLimitEntry{
@@ -72,22 +90,42 @@ func (ds *DatabaseStore) Set(key string, value interface{}, ttl time.Duration) e
 	}
 
 	// Upsert (insert or update)
-	return ds.db.Save(&entry).Error
+	if err := ds.db.Save(&entry).Error; err != nil {
+		return fmt.Errorf("database Set error: %w", err)
+	}
+	return nil
 }
 
 // Delete removes a key from database
 func (ds *DatabaseStore) Delete(key string) error {
-	return ds.db.Delete(&RateLimitEntry{}, "key = ?", key).Error
+	if key == "" {
+		return fmt.Errorf("key cannot be empty")
+	}
+
+	result := ds.db.Delete(&RateLimitEntry{}, "key = ?", key)
+	if result.Error != nil {
+		return fmt.Errorf("database Delete error: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("key not found")
+	}
+	return nil
 }
 
 // Exists checks if a key exists in database and hasn't expired
-func (ds *DatabaseStore) Exists(key string) bool {
-	var count int64
-	ds.db.Model(&RateLimitEntry{}).
-		Where("key = ? AND expires_at > ?", key, time.Now()).
-		Count(&count)
+func (ds *DatabaseStore) Exists(key string) (bool, error) {
+	if key == "" {
+		return false, fmt.Errorf("key cannot be empty")
+	}
 
-	return count > 0
+	var count int64
+	if err := ds.db.Model(&RateLimitEntry{}).
+		Where("key = ? AND expires_at > ?", key, time.Now()).
+		Count(&count).Error; err != nil {
+		return false, fmt.Errorf("database Exists error: %w", err)
+	}
+
+	return count > 0, nil
 }
 
 func (ds *DatabaseStore) CleanupExpired() error {

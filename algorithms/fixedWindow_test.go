@@ -80,11 +80,11 @@ func TestFixedWindowMultipleUsers(t *testing.T) {
 	bucket1 := bucket1Data.(*FixedWindowBucket)
 	bucket2 := bucket2Data.(*FixedWindowBucket)
 
-	if bucket1.count != 3 {
-		t.Errorf("user1 count: got %d, want 3", bucket1.count)
+	if bucket1.Count != 3 {
+		t.Errorf("user1 count: got %d, want 3", bucket1.Count)
 	}
-	if bucket2.count != 3 {
-		t.Errorf("user2 count: got %d, want 3", bucket2.count)
+	if bucket2.Count != 3 {
+		t.Errorf("user2 count: got %d, want 3", bucket2.Count)
 	}
 }
 
@@ -102,8 +102,8 @@ func TestFixedWindowWindowReset(t *testing.T) {
 
 	bucketData, _ := s.Get("user1")
 	bucket := bucketData.(*FixedWindowBucket)
-	if bucket.count != 5 {
-		t.Errorf("count before reset: got %d, want 5", bucket.count)
+	if bucket.Count != 5 {
+		t.Errorf("count before reset: got %d, want 5", bucket.Count)
 	}
 
 	// Wait for window to change
@@ -117,8 +117,8 @@ func TestFixedWindowWindowReset(t *testing.T) {
 
 	bucketData, _ = s.Get("user1")
 	bucket = bucketData.(*FixedWindowBucket)
-	if bucket.count != 1 {
-		t.Errorf("count after reset: got %d, want 1", bucket.count)
+	if bucket.Count != 1 {
+		t.Errorf("count after reset: got %d, want 1", bucket.Count)
 	}
 }
 
@@ -133,8 +133,8 @@ func TestFixedWindowReset(t *testing.T) {
 
 	bucketData, _ := s.Get("user1")
 	bucket := bucketData.(*FixedWindowBucket)
-	if bucket.count != 3 {
-		t.Errorf("count before reset: got %d, want 3", bucket.count)
+	if bucket.Count != 3 {
+		t.Errorf("count before reset: got %d, want 3", bucket.Count)
 	}
 
 	// Reset

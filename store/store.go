@@ -13,5 +13,5 @@ type Store interface {
 	Delete(key string) error
 
 	// Exists checks if a key exists
-	Exists(key string) bool
+	Exists(key string) (bool, error)
 }

@@ -98,7 +98,11 @@ func (lb *LeakyBucket) Reset(key string) error {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	if !lb.store.Exists(key) {
+	exists, err := lb.store.Exists(key)
+	if err != nil {
+		return err
+	}
+	if !exists {
 		return fmt.Errorf("bucket for key %s does not exist", key)
 	}
 

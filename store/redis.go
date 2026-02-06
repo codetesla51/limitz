@@ -14,63 +14,107 @@ type RedisStore struct {
 	ctx    context.Context
 }
 
-func NewRedisStore(addr string) (*RedisStore, error) {
+func NewRedisStore(addr, username, password string) (*RedisStore, error) {
+	if addr == "" {
+		return nil, fmt.Errorf("Redis address cannot be empty")
+	}
+
 	client := redis.NewClient(&redis.Options{
-		Addr: addr,
+		Addr:         addr,
+		Username:     username,
+		Password:     password,
+		MaxRetries:   3,
+		PoolSize:     10,
+		MinIdleConns: 5,
 	})
 
-	// Test connection
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	if err := client.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 
 	return &RedisStore{
 		client: client,
-		ctx:    ctx,
+		ctx:    context.Background(),
 	}, nil
 }
 
 func (r *RedisStore) Get(key string) (interface{}, error) {
-	val, err := r.client.Get(r.ctx, key).Result()
+	if key == "" {
+		return nil, fmt.Errorf("key cannot be empty")
+	}
+
+	ctx, cancel := context.WithTimeout(r.ctx, 2*time.Second)
+	defer cancel()
+
+	val, err := r.client.Get(ctx, key).Result()
 	if err == redis.Nil {
-		// Key doesn't exist
 		return nil, fmt.Errorf("key not found")
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Redis Get error: %w", err)
 	}
 
 	return val, nil
 }
 
-// Set stores a value in Redis with TTL
 func (r *RedisStore) Set(key string, value interface{}, ttl time.Duration) error {
-	// Convert value to JSON string for storage
+	if key == "" {
+		return fmt.Errorf("key cannot be empty")
+	}
+	if value == nil {
+		return fmt.Errorf("value cannot be nil")
+	}
+
 	jsonData, err := json.Marshal(value)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal value: %w", err)
 	}
 
-	// Store with TTL
-	return r.client.Set(r.ctx, key, string(jsonData), ttl).Err()
+	ctx, cancel := context.WithTimeout(r.ctx, 2*time.Second)
+	defer cancel()
+
+	if err := r.client.Set(ctx, key, string(jsonData), ttl).Err(); err != nil {
+		return fmt.Errorf("Redis Set error: %w", err)
+	}
+	return nil
 }
 
-// Delete removes a key from Redis
 func (r *RedisStore) Delete(key string) error {
-	return r.client.Del(r.ctx, key).Err()
-}
-
-// Exists checks if a key exists in Redis
-func (r *RedisStore) Exists(key string) bool {
-	exists, err := r.client.Exists(r.ctx, key).Result()
-	if err != nil {
-		return false
+	if key == "" {
+		return fmt.Errorf("key cannot be empty")
 	}
-	return exists > 0
+
+	ctx, cancel := context.WithTimeout(r.ctx, 2*time.Second)
+	defer cancel()
+
+	deleted, err := r.client.Del(ctx, key).Result()
+	if err != nil {
+		return fmt.Errorf("Redis Delete error: %w", err)
+	}
+	if deleted == 0 {
+		return fmt.Errorf("key not found")
+	}
+	return nil
 }
 
-// Close closes the Redis connection
+func (r *RedisStore) Exists(key string) (bool, error) {
+	if key == "" {
+		return false, fmt.Errorf("key cannot be empty")
+	}
+
+	ctx, cancel := context.WithTimeout(r.ctx, 2*time.Second)
+	defer cancel()
+
+	exists, err := r.client.Exists(ctx, key).Result()
+	if err != nil {
+		return false, fmt.Errorf("Redis Exists error: %w", err)
+	}
+	return exists > 0, nil
+}
+
 func (r *RedisStore) Close() error {
 	return r.client.Close()
 }

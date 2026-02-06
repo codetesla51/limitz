@@ -71,7 +71,9 @@ func (sw *SlidingWindow) Allow(key string) (Result, error) {
 
 	if len(bucket.Timestamps) < sw.Limit {
 		bucket.Timestamps = append(bucket.Timestamps, now)
-		sw.store.Set(key, bucket, sw.WindowSize)
+		if err := sw.store.Set(key, bucket, sw.WindowSize); err != nil {
+			return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
+		}
 		return Result{
 			Allowed:    true,
 			Limit:      sw.Limit,
@@ -84,7 +86,9 @@ func (sw *SlidingWindow) Allow(key string) (Result, error) {
 	timeSinceOldest := now - oldestTimestamp
 	retryAfter := time.Duration(sw.WindowSize.Nanoseconds() - timeSinceOldest)
 
-	sw.store.Set(key, bucket, sw.WindowSize)
+	if err := sw.store.Set(key, bucket, sw.WindowSize); err != nil {
+		return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
+	}
 	return Result{
 		Allowed:    false,
 		Limit:      sw.Limit,
@@ -97,7 +101,11 @@ func (sw *SlidingWindow) Reset(key string) error {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
-	if !sw.store.Exists(key) {
+	exists, err := sw.store.Exists(key)
+	if err != nil {
+		return err
+	}
+	if !exists {
 		return fmt.Errorf("bucket for key %s does not exist", key)
 	}
 
