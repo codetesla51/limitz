@@ -11,6 +11,11 @@ A high-performance, extensible rate limiting library for Go. Limitz provides fiv
 - Sub-millisecond performance on most algorithms
 - Minimal memory allocations
 
+## Used In Production
+
+- [TodoAPI](https://todoflow-black.vercel.app) - Production Todo API demonstrating Redis → PostgreSQL failover strategy with distributed rate limiting
+- Add yours via PR!
+
 ## Installation
 
 ```bash
@@ -197,10 +202,27 @@ if err != nil {
 defer s.Close()
 ```
 
+**Connection Configuration:**
+
+The Redis store uses the following connection settings:
+```go
+client := redis.NewClient(&redis.Options{
+    Addr:         addr,
+    Username:     username,
+    Password:     password,
+    MaxRetries:   3,
+    PoolSize:     10,
+    MinIdleConns: 5,
+})
+```
+
+**Features:**
 - Shared state across instances
 - Persistent across restarts
 - Requires a running Redis server
 - Pass empty strings for username/password if authentication is not configured
+- Automatic connection retry (up to 3 attempts)
+- Connection pooling for better performance
 
 ### PostgreSQL
 
