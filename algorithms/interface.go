@@ -1,6 +1,9 @@
 package algorithms
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type Result struct {
 	Allowed    bool
@@ -9,6 +12,6 @@ type Result struct {
 	RetryAfter time.Duration
 }
 type RateLimiter interface {
-	Allow(key string) (Result, error)
-	Reset(key string) error
+	Allow(ctx context.Context, key string) (Result, error)
+	Reset(ctx context.Context, key string) error
 }

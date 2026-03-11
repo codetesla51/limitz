@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -32,7 +33,10 @@ func (ms *MemoryStore) Close() {
 	close(ms.stop)
 }
 
-func (ms *MemoryStore) Get(key string) (interface{}, error) {
+func (ms *MemoryStore) Get(ctx context.Context, key string) (interface{}, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if key == "" {
 		return nil, fmt.Errorf("key cannot be empty")
 	}
@@ -54,7 +58,10 @@ func (ms *MemoryStore) Get(key string) (interface{}, error) {
 	return entry.value, nil
 }
 
-func (ms *MemoryStore) Set(key string, value interface{}, ttl time.Duration) error {
+func (ms *MemoryStore) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if key == "" {
 		return fmt.Errorf("key cannot be empty")
 	}
@@ -76,7 +83,10 @@ func (ms *MemoryStore) Set(key string, value interface{}, ttl time.Duration) err
 	return nil
 }
 
-func (ms *MemoryStore) Delete(key string) error {
+func (ms *MemoryStore) Delete(ctx context.Context, key string) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if key == "" {
 		return fmt.Errorf("key cannot be empty")
 	}
@@ -92,7 +102,10 @@ func (ms *MemoryStore) Delete(key string) error {
 	return nil
 }
 
-func (ms *MemoryStore) Exists(key string) (bool, error) {
+func (ms *MemoryStore) Exists(ctx context.Context, key string) (bool, error) {
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
 	if key == "" {
 		return false, fmt.Errorf("key cannot be empty")
 	}

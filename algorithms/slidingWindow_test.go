@@ -1,6 +1,7 @@
 package algorithms
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -36,12 +37,13 @@ func TestSlidingWindowAllow(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
 			s := store.NewMemoryStore()
 			sw := NewSlidingWindow(tt.limit, 1*time.Second, s)
 
 			allowed := 0
 			for i := 0; i < tt.requests; i++ {
-				result, err := sw.Allow("user1")
+				result, err := sw.Allow(ctx, "user1")
 				if err == nil && result.Allowed {
 					allowed++
 				}
@@ -55,12 +57,13 @@ func TestSlidingWindowAllow(t *testing.T) {
 }
 
 func TestSlidingWindowMultipleUsers(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	sw := NewSlidingWindow(3, 1*time.Second, s)
 
 	// User 1 makes 3 requests
 	for i := 0; i < 3; i++ {
-		result, err := sw.Allow("user1")
+		result, err := sw.Allow(ctx, "user1")
 		if err != nil || !result.Allowed {
 			t.Errorf("user1 request %d should be allowed", i+1)
 		}
@@ -68,15 +71,15 @@ func TestSlidingWindowMultipleUsers(t *testing.T) {
 
 	// User 2 makes 3 requests (different user, separate bucket)
 	for i := 0; i < 3; i++ {
-		result, err := sw.Allow("user2")
+		result, err := sw.Allow(ctx, "user2")
 		if err != nil || !result.Allowed {
 			t.Errorf("user2 request %d should be allowed", i+1)
 		}
 	}
 
 	// Both should have 3 timestamps in their bucket
-	bucket1Data, _ := s.Get("user1")
-	bucket2Data, _ := s.Get("user2")
+	bucket1Data, _ := s.Get(ctx, "user1")
+	bucket2Data, _ := s.Get(ctx, "user2")
 	bucket1 := bucket1Data.(*SlidingWindowBucket)
 	bucket2 := bucket2Data.(*SlidingWindowBucket)
 
@@ -89,24 +92,25 @@ func TestSlidingWindowMultipleUsers(t *testing.T) {
 }
 
 func TestSlidingWindowWindowSlide(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	sw := NewSlidingWindow(5, 1*time.Second, s)
 
 	// Make 5 requests (at limit)
 	for i := 0; i < 5; i++ {
-		result, err := sw.Allow("user1")
+		result, err := sw.Allow(ctx, "user1")
 		if err != nil || !result.Allowed {
 			t.Errorf("request %d should be allowed", i+1)
 		}
 	}
 
 	// 6th request denied (at limit)
-	result6, err6 := sw.Allow("user1")
+	result6, err6 := sw.Allow(ctx, "user1")
 	if err6 == nil && result6.Allowed {
 		t.Error("6th request should be denied")
 	}
 
-	bucketData, _ := s.Get("user1")
+	bucketData, _ := s.Get(ctx, "user1")
 	bucket := bucketData.(*SlidingWindowBucket)
 	if len(bucket.Timestamps) != 5 {
 		t.Errorf("timestamps after denial: got %d, want 5", len(bucket.Timestamps))
@@ -114,12 +118,12 @@ func TestSlidingWindowWindowSlide(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	resultAfterWait, errAfterWait := sw.Allow("user1")
+	resultAfterWait, errAfterWait := sw.Allow(ctx, "user1")
 	if errAfterWait != nil || !resultAfterWait.Allowed {
 		t.Error("request after 1 second wait should be allowed")
 	}
 
-	bucketData, _ = s.Get("user1")
+	bucketData, _ = s.Get(ctx, "user1")
 	bucket = bucketData.(*SlidingWindowBucket)
 	if len(bucket.Timestamps) != 1 {
 		t.Errorf("timestamps after slide: got %d, want 1", len(bucket.Timestamps))
@@ -127,30 +131,31 @@ func TestSlidingWindowWindowSlide(t *testing.T) {
 }
 
 func TestSlidingWindowPartialSlide(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	sw := NewSlidingWindow(3, 1*time.Second, s)
 
 	// Make 3 requests at the start
 	for i := 0; i < 3; i++ {
-		result, err := sw.Allow("user1")
+		result, err := sw.Allow(ctx, "user1")
 		if err != nil || !result.Allowed {
 			t.Errorf("request %d should be allowed", i+1)
 		}
 	}
 
-	result4, err4 := sw.Allow("user1")
+	result4, err4 := sw.Allow(ctx, "user1")
 	if err4 == nil && result4.Allowed {
 		t.Error("4th request should be denied (at limit)")
 	}
 
 	time.Sleep(1500 * time.Millisecond)
 
-	resultAfter, errAfter := sw.Allow("user1")
+	resultAfter, errAfter := sw.Allow(ctx, "user1")
 	if errAfter != nil || !resultAfter.Allowed {
 		t.Error("request after full window slide should be allowed")
 	}
 
-	bucketData, _ := s.Get("user1")
+	bucketData, _ := s.Get(ctx, "user1")
 	bucket := bucketData.(*SlidingWindowBucket)
 	// Only the new request should be there
 	if len(bucket.Timestamps) != 1 {
@@ -159,43 +164,46 @@ func TestSlidingWindowPartialSlide(t *testing.T) {
 }
 
 func TestSlidingWindowReset(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	sw := NewSlidingWindow(5, 1*time.Second, s)
 
 	// Make some requests
 	for i := 0; i < 3; i++ {
-		_, _ = sw.Allow("user1")
+		_, _ = sw.Allow(ctx, "user1")
 	}
 
-	bucketData, _ := s.Get("user1")
+	bucketData, _ := s.Get(ctx, "user1")
 	bucket := bucketData.(*SlidingWindowBucket)
 	if len(bucket.Timestamps) != 3 {
 		t.Errorf("timestamps before reset: got %d, want 3", len(bucket.Timestamps))
 	}
 
 	// Reset
-	err := sw.Reset("user1")
+	err := sw.Reset(ctx, "user1")
 	if err != nil {
 		t.Errorf("reset failed: %v", err)
 	}
 
-	_, err = s.Get("user1")
+	_, err = s.Get(ctx, "user1")
 	if err == nil {
 		t.Error("after reset, user1 should not exist in store")
 	}
 }
 
 func TestSlidingWindowResetNonexistent(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	sw := NewSlidingWindow(5, 1*time.Second, s)
 
-	err := sw.Reset("nonexistent")
+	err := sw.Reset(ctx, "nonexistent")
 	if err == nil {
 		t.Error("reset nonexistent should return error")
 	}
 }
 
 func TestSlidingWindowConcurrency(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	sw := NewSlidingWindow(100, 1*time.Second, s)
 
@@ -205,7 +213,7 @@ func TestSlidingWindowConcurrency(t *testing.T) {
 		go func(id int) {
 			count := 0
 			for j := 0; j < 10; j++ {
-				result, err := sw.Allow("concurrent_user")
+				result, err := sw.Allow(ctx, "concurrent_user")
 				if err == nil && result.Allowed {
 					count++
 				}
@@ -227,19 +235,20 @@ func TestSlidingWindowConcurrency(t *testing.T) {
 
 func TestSlidingWindowFairness(t *testing.T) {
 	// This test shows why SlidingWindow is fairer than FixedWindow
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	sw := NewSlidingWindow(2, 100*time.Millisecond, s)
 
 	// Time T=0ms: Make 2 requests (at limit)
-	_, _ = sw.Allow("user1")
-	_, _ = sw.Allow("user1")
+	_, _ = sw.Allow(ctx, "user1")
+	_, _ = sw.Allow(ctx, "user1")
 
 	// Time T=50ms: Wait 50ms (halfway through window)
 	time.Sleep(50 * time.Millisecond)
 
 	// Time T=50ms: Try 2 more requests (should be denied - still in same window)
-	result1, _ := sw.Allow("user1")
-	result2, _ := sw.Allow("user1")
+	result1, _ := sw.Allow(ctx, "user1")
+	result2, _ := sw.Allow(ctx, "user1")
 	denied1 := !result1.Allowed
 	denied2 := !result2.Allowed
 
@@ -251,8 +260,8 @@ func TestSlidingWindowFairness(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Time T=100ms: Now old requests have slid out, new ones allowed
-	result3, _ := sw.Allow("user1")
-	result4, _ := sw.Allow("user1")
+	result3, _ := sw.Allow(ctx, "user1")
+	result4, _ := sw.Allow(ctx, "user1")
 	allowed1 := result3.Allowed
 	allowed2 := result4.Allowed
 

@@ -1,6 +1,7 @@
 package algorithms
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -33,14 +34,14 @@ func NewSlidingWindow(limit int, windowSize time.Duration, s store.Store) *Slidi
 }
 
 // Allow checks if a request is allowed under sliding window rate limit
-func (sw *SlidingWindow) Allow(key string) (Result, error) {
+func (sw *SlidingWindow) Allow(ctx context.Context, key string) (Result, error) {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
 	now := time.Now().UnixNano()
 	windowStart := now - sw.WindowSize.Nanoseconds()
 
-	bucketData, err := sw.store.Get(key)
+	bucketData, err := sw.store.Get(ctx, key)
 	var bucket *SlidingWindowBucket
 	if err != nil {
 		bucket = &SlidingWindowBucket{
@@ -71,7 +72,7 @@ func (sw *SlidingWindow) Allow(key string) (Result, error) {
 
 	if len(bucket.Timestamps) < sw.Limit {
 		bucket.Timestamps = append(bucket.Timestamps, now)
-		if err := sw.store.Set(key, bucket, sw.WindowSize); err != nil {
+		if err := sw.store.Set(ctx, key, bucket, sw.WindowSize); err != nil {
 			return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
 		}
 		return Result{
@@ -86,7 +87,7 @@ func (sw *SlidingWindow) Allow(key string) (Result, error) {
 	timeSinceOldest := now - oldestTimestamp
 	retryAfter := time.Duration(sw.WindowSize.Nanoseconds() - timeSinceOldest)
 
-	if err := sw.store.Set(key, bucket, sw.WindowSize); err != nil {
+	if err := sw.store.Set(ctx, key, bucket, sw.WindowSize); err != nil {
 		return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
 	}
 	return Result{
@@ -97,11 +98,11 @@ func (sw *SlidingWindow) Allow(key string) (Result, error) {
 	}, nil
 }
 
-func (sw *SlidingWindow) Reset(key string) error {
+func (sw *SlidingWindow) Reset(ctx context.Context, key string) error {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
-	exists, err := sw.store.Exists(key)
+	exists, err := sw.store.Exists(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -109,5 +110,5 @@ func (sw *SlidingWindow) Reset(key string) error {
 		return fmt.Errorf("bucket for key %s does not exist", key)
 	}
 
-	return sw.store.Delete(key)
+	return sw.store.Delete(ctx, key)
 }

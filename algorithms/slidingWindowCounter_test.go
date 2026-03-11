@@ -1,6 +1,7 @@
 package algorithms
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -42,12 +43,13 @@ func TestSlidingWindowCounterAllow(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
 			s := store.NewMemoryStore()
 			swc := NewSlidingWindowCounter(tt.limit, 1*time.Second, s)
 
 			allowed := 0
 			for i := 0; i < tt.requests; i++ {
-				result, err := swc.Allow("user1")
+				result, err := swc.Allow(ctx, "user1")
 				if err == nil && result.Allowed {
 					allowed++
 				}
@@ -61,25 +63,26 @@ func TestSlidingWindowCounterAllow(t *testing.T) {
 }
 
 func TestSlidingWindowCounterMultipleUsers(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	swc := NewSlidingWindowCounter(3, 1*time.Second, s)
 
 	for i := 0; i < 3; i++ {
-		result, err := swc.Allow("user1")
+		result, err := swc.Allow(ctx, "user1")
 		if err != nil || !result.Allowed {
 			t.Errorf("user1 request %d should be allowed", i+1)
 		}
 	}
 
 	for i := 0; i < 3; i++ {
-		result, err := swc.Allow("user2")
+		result, err := swc.Allow(ctx, "user2")
 		if err != nil || !result.Allowed {
 			t.Errorf("user2 request %d should be allowed", i+1)
 		}
 	}
 
-	bucket1Data, _ := s.Get("user1")
-	bucket2Data, _ := s.Get("user2")
+	bucket1Data, _ := s.Get(ctx, "user1")
+	bucket2Data, _ := s.Get(ctx, "user2")
 	bucket1 := bucket1Data.(*SlidingWindowCounterBucket)
 	bucket2 := bucket2Data.(*SlidingWindowCounterBucket)
 
@@ -92,38 +95,40 @@ func TestSlidingWindowCounterMultipleUsers(t *testing.T) {
 }
 
 func TestSlidingWindowCounterWindowReset(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	swc := NewSlidingWindowCounter(5, 100*time.Millisecond, s)
 
 	for i := 0; i < 5; i++ {
-		result, err := swc.Allow("user1")
+		result, err := swc.Allow(ctx, "user1")
 		if err != nil || !result.Allowed {
 			t.Errorf("request %d should be allowed", i+1)
 		}
 	}
 
-	result, err := swc.Allow("user1")
+	result, err := swc.Allow(ctx, "user1")
 	if err != nil || result.Allowed {
 		t.Errorf("6th request should be denied")
 	}
 
 	time.Sleep(150 * time.Millisecond)
 
-	result, err = swc.Allow("user1")
+	result, err = swc.Allow(ctx, "user1")
 	if err != nil || !result.Allowed {
 		t.Errorf("request after window reset should be allowed")
 	}
 }
 
 func TestSlidingWindowCounterRemaining(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	swc := NewSlidingWindowCounter(10, 1*time.Second, s)
 
 	for i := 0; i < 3; i++ {
-		swc.Allow("user1")
+		swc.Allow(ctx, "user1")
 	}
 
-	result, err := swc.Allow("user1")
+	result, err := swc.Allow(ctx, "user1")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -134,13 +139,14 @@ func TestSlidingWindowCounterRemaining(t *testing.T) {
 }
 
 func TestSlidingWindowCounterRetryAfter(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	swc := NewSlidingWindowCounter(2, 1*time.Second, s)
 
-	swc.Allow("user1")
-	swc.Allow("user1")
+	swc.Allow(ctx, "user1")
+	swc.Allow(ctx, "user1")
 
-	result, err := swc.Allow("user1")
+	result, err := swc.Allow(ctx, "user1")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -159,10 +165,11 @@ func TestSlidingWindowCounterRetryAfter(t *testing.T) {
 }
 
 func TestSlidingWindowCounterResultFields(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	swc := NewSlidingWindowCounter(5, 1*time.Second, s)
 
-	result, err := swc.Allow("user1")
+	result, err := swc.Allow(ctx, "user1")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -185,22 +192,23 @@ func TestSlidingWindowCounterResultFields(t *testing.T) {
 }
 
 func TestSlidingWindowCounterReset(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	swc := NewSlidingWindowCounter(3, 1*time.Second, s)
 
 	// Make 3 requests
 	for i := 0; i < 3; i++ {
-		swc.Allow("user1")
+		swc.Allow(ctx, "user1")
 	}
 
 	// Reset the bucket
-	err := swc.Reset("user1")
+	err := swc.Reset(ctx, "user1")
 	if err != nil {
 		t.Errorf("unexpected error during reset: %v", err)
 	}
 
 	// Next request should be allowed (bucket was reset)
-	result, err := swc.Allow("user1")
+	result, err := swc.Allow(ctx, "user1")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -211,24 +219,26 @@ func TestSlidingWindowCounterReset(t *testing.T) {
 }
 
 func TestSlidingWindowCounterResetNonExistent(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	swc := NewSlidingWindowCounter(3, 1*time.Second, s)
 
-	err := swc.Reset("nonexistent")
+	err := swc.Reset(ctx, "nonexistent")
 	if err == nil {
 		t.Errorf("expected error for non-existent key, got nil")
 	}
 }
 
 func TestSlidingWindowCounterBucketData(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	swc := NewSlidingWindowCounter(5, 1*time.Second, s)
 
 	for i := 0; i < 2; i++ {
-		swc.Allow("user1")
+		swc.Allow(ctx, "user1")
 	}
 
-	bucketData, err := s.Get("user1")
+	bucketData, err := s.Get(ctx, "user1")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -249,6 +259,7 @@ func TestSlidingWindowCounterBucketData(t *testing.T) {
 }
 
 func TestSlidingWindowCounterConcurrency(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	swc := NewSlidingWindowCounter(100, 1*time.Second, s)
 
@@ -257,7 +268,7 @@ func TestSlidingWindowCounterConcurrency(t *testing.T) {
 
 	for i := 0; i < 150; i++ {
 		go func() {
-			result, err := swc.Allow("user1")
+			result, err := swc.Allow(ctx, "user1")
 			if err == nil && result.Allowed {
 				allowed++
 			}
@@ -287,11 +298,12 @@ func TestSlidingWindowCounterPanicOnInvalidWindow(t *testing.T) {
 }
 
 func TestSlidingWindowCounterSliding(t *testing.T) {
+	ctx := context.Background()
 	s := store.NewMemoryStore()
 	swc := NewSlidingWindowCounter(10, 1*time.Second, s)
 
 	for i := 0; i < 10; i++ {
-		result, err := swc.Allow("user1")
+		result, err := swc.Allow(ctx, "user1")
 		if err != nil || !result.Allowed {
 			t.Errorf("request %d should be allowed", i+1)
 		}
@@ -299,7 +311,7 @@ func TestSlidingWindowCounterSliding(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	result, err := swc.Allow("user1")
+	result, err := swc.Allow(ctx, "user1")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -310,7 +322,7 @@ func TestSlidingWindowCounterSliding(t *testing.T) {
 
 	time.Sleep(600 * time.Millisecond)
 
-	result, err = swc.Allow("user1")
+	result, err = swc.Allow(ctx, "user1")
 	if err != nil || !result.Allowed {
 		t.Errorf("request after window expires should be allowed")
 	}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -44,7 +45,7 @@ func NewDatabaseStore(dsn string) (*DatabaseStore, error) {
 }
 
 // Get retrieves a value from database
-func (ds *DatabaseStore) Get(key string) (interface{}, error) {
+func (ds *DatabaseStore) Get(ctx context.Context, key string) (interface{}, error) {
 	if key == "" {
 		return nil, fmt.Errorf("key cannot be empty")
 	}
@@ -66,7 +67,7 @@ func (ds *DatabaseStore) Get(key string) (interface{}, error) {
 }
 
 // Set stores a value in database with TTL
-func (ds *DatabaseStore) Set(key string, value interface{}, ttl time.Duration) error {
+func (ds *DatabaseStore) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	if key == "" {
 		return fmt.Errorf("key cannot be empty")
 	}
@@ -97,7 +98,7 @@ func (ds *DatabaseStore) Set(key string, value interface{}, ttl time.Duration) e
 }
 
 // Delete removes a key from database
-func (ds *DatabaseStore) Delete(key string) error {
+func (ds *DatabaseStore) Delete(ctx context.Context, key string) error {
 	if key == "" {
 		return fmt.Errorf("key cannot be empty")
 	}
@@ -113,7 +114,7 @@ func (ds *DatabaseStore) Delete(key string) error {
 }
 
 // Exists checks if a key exists in database and hasn't expired
-func (ds *DatabaseStore) Exists(key string) (bool, error) {
+func (ds *DatabaseStore) Exists(ctx context.Context, key string) (bool, error) {
 	if key == "" {
 		return false, fmt.Errorf("key cannot be empty")
 	}

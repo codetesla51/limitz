@@ -1,6 +1,7 @@
 package algorithms
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -29,14 +30,14 @@ func NewLeakyBucket(capacity, rate int, s store.Store) *LeakyBucket {
 	}
 }
 
-func (lb *LeakyBucket) Allow(key string) (Result, error) {
+func (lb *LeakyBucket) Allow(ctx context.Context, key string) (Result, error) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
 	now := time.Now()
 
 	// GET bucket from store
-	bucketData, err := lb.store.Get(key)
+	bucketData, err := lb.store.Get(ctx, key)
 	var bucket *LeakyBucketUser
 	if err != nil {
 		bucket = &LeakyBucketUser{
@@ -70,7 +71,7 @@ func (lb *LeakyBucket) Allow(key string) (Result, error) {
 	// Check capacity
 	if bucket.Queue < lb.Capacity {
 		bucket.Queue++
-		err := lb.store.Set(key, bucket, 1*time.Hour)
+		err := lb.store.Set(ctx, key, bucket, 1*time.Hour)
 		if err != nil {
 			return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
 		}
@@ -82,7 +83,7 @@ func (lb *LeakyBucket) Allow(key string) (Result, error) {
 		}, nil
 	}
 
-	err = lb.store.Set(key, bucket, 1*time.Hour)
+	err = lb.store.Set(ctx, key, bucket, 1*time.Hour)
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
 	}
@@ -94,11 +95,11 @@ func (lb *LeakyBucket) Allow(key string) (Result, error) {
 	}, nil
 }
 
-func (lb *LeakyBucket) Reset(key string) error {
+func (lb *LeakyBucket) Reset(ctx context.Context, key string) error {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	exists, err := lb.store.Exists(key)
+	exists, err := lb.store.Exists(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -106,5 +107,5 @@ func (lb *LeakyBucket) Reset(key string) error {
 		return fmt.Errorf("bucket for key %s does not exist", key)
 	}
 
-	return lb.store.Delete(key)
+	return lb.store.Delete(ctx, key)
 }

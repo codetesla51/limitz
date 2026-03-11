@@ -1,6 +1,7 @@
 package algorithms
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -32,14 +33,14 @@ func NewFixedWindow(limit int, windowSize time.Duration, s store.Store) *FixedWi
 	}
 }
 
-func (fw *FixedWindow) Allow(key string) (Result, error) {
+func (fw *FixedWindow) Allow(ctx context.Context, key string) (Result, error) {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
 	nowNanos := time.Now().UnixNano()
 	windowSizeNanos := fw.WindowSize.Nanoseconds()
 
-	fixedWindowData, err := fw.store.Get(key)
+	fixedWindowData, err := fw.store.Get(ctx, key)
 	var bucket *FixedWindowBucket
 	if err != nil {
 		bucket = &FixedWindowBucket{
@@ -69,7 +70,7 @@ func (fw *FixedWindow) Allow(key string) (Result, error) {
 		nextWindowStart := int64(currentWindow+1) * windowSizeNanos
 		retryAfter := time.Duration(nextWindowStart-nowNanos) * time.Nanosecond
 
-		err = fw.store.Set(key, bucket, fw.WindowSize)
+		err = fw.store.Set(ctx, key, bucket, fw.WindowSize)
 		if err != nil {
 			return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
 		}
@@ -80,7 +81,7 @@ func (fw *FixedWindow) Allow(key string) (Result, error) {
 			RetryAfter: retryAfter,
 		}, nil
 	}
-	err = fw.store.Set(key, bucket, fw.WindowSize)
+	err = fw.store.Set(ctx, key, bucket, fw.WindowSize)
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
 	}
@@ -92,15 +93,15 @@ func (fw *FixedWindow) Allow(key string) (Result, error) {
 		RetryAfter: 0,
 	}, nil
 }
-func (fw *FixedWindow) Reset(key string) error {
+func (fw *FixedWindow) Reset(ctx context.Context, key string) error {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
-	exists, err := fw.store.Exists(key)
+	exists, err := fw.store.Exists(ctx, key)
 	if err != nil {
 		return err
 	}
 	if !exists {
 		return fmt.Errorf("bucket for key %s does not exist", key)
 	}
-	return fw.store.Delete(key)
+	return fw.store.Delete(ctx, key)
 }

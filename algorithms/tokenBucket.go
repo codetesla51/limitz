@@ -1,6 +1,7 @@
 package algorithms
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -30,11 +31,11 @@ func NewTokenBucket(capacity, refillRate int, s store.Store) *TokenBucket {
 }
 
 // Allow checks if a request is allowed using token bucket rate limiting.
-func (tb *TokenBucket) Allow(key string) (Result, error) {
+func (tb *TokenBucket) Allow(ctx context.Context, key string) (Result, error) {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
 	now := time.Now()
-	tokenBucketData, err := tb.store.Get(key)
+	tokenBucketData, err := tb.store.Get(ctx, key)
 	var bucket *Buckets
 	if err != nil {
 		bucket = &Buckets{
@@ -63,7 +64,7 @@ func (tb *TokenBucket) Allow(key string) (Result, error) {
 
 	if bucket.Tokens > 0 {
 		bucket.Tokens--
-		err := tb.store.Set(key, bucket, 1*time.Hour)
+		err := tb.store.Set(ctx, key, bucket, 1*time.Hour)
 		if err != nil {
 			return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
 		}
@@ -75,7 +76,7 @@ func (tb *TokenBucket) Allow(key string) (Result, error) {
 		}, nil
 	}
 
-	err = tb.store.Set(key, bucket, 1*time.Hour)
+	err = tb.store.Set(ctx, key, bucket, 1*time.Hour)
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
 	}
@@ -86,15 +87,15 @@ func (tb *TokenBucket) Allow(key string) (Result, error) {
 		RetryAfter: time.Duration(float64(time.Second) / float64(tb.RefillRate)),
 	}, nil
 }
-func (tb *TokenBucket) Reset(key string) error {
+func (tb *TokenBucket) Reset(ctx context.Context, key string) error {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	exists, err := tb.store.Exists(key)
+	exists, err := tb.store.Exists(ctx, key)
 	if err != nil {
 		return err
 	}
 	if !exists {
 		return fmt.Errorf("bucket for key %s does not exist", key)
 	}
-	return tb.store.Delete(key)
+	return tb.store.Delete(ctx, key)
 }

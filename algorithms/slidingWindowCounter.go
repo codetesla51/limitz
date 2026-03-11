@@ -1,6 +1,7 @@
 package algorithms
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -33,7 +34,7 @@ func NewSlidingWindowCounter(limit int, windowSize time.Duration, s store.Store)
 	}
 }
 
-func (swc *SlidingWindowCounter) Allow(key string) (Result, error) {
+func (swc *SlidingWindowCounter) Allow(ctx context.Context, key string) (Result, error) {
 	swc.mu.Lock()
 	defer swc.mu.Unlock()
 
@@ -42,7 +43,7 @@ func (swc *SlidingWindowCounter) Allow(key string) (Result, error) {
 
 	currentWindow := int(nowNanos / windowSizeNanos)
 
-	bucketData, err := swc.store.Get(key)
+	bucketData, err := swc.store.Get(ctx, key)
 	var bucket *SlidingWindowCounterBucket
 	if err != nil {
 		bucket = &SlidingWindowCounterBucket{
@@ -92,7 +93,7 @@ func (swc *SlidingWindowCounter) Allow(key string) (Result, error) {
 	// Check if allowed
 	if estimate < float64(swc.Limit) {
 		bucket.CurrentCount++
-		err := swc.store.Set(key, bucket, swc.WindowSize*2) // Store for 2 windows
+		err := swc.store.Set(ctx, key, bucket, swc.WindowSize*2) // Store for 2 windows
 		if err != nil {
 			return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
 		}
@@ -108,7 +109,7 @@ func (swc *SlidingWindowCounter) Allow(key string) (Result, error) {
 	nextWindowStart := int64(currentWindow+1) * windowSizeNanos
 	retryAfter := time.Duration(nextWindowStart-nowNanos) * time.Nanosecond
 
-	err = swc.store.Set(key, bucket, swc.WindowSize*2)
+	err = swc.store.Set(ctx, key, bucket, swc.WindowSize*2)
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to save bucket state: %v", err)
 	}
@@ -121,11 +122,11 @@ func (swc *SlidingWindowCounter) Allow(key string) (Result, error) {
 	}, nil
 }
 
-func (swc *SlidingWindowCounter) Reset(key string) error {
+func (swc *SlidingWindowCounter) Reset(ctx context.Context, key string) error {
 	swc.mu.Lock()
 	defer swc.mu.Unlock()
 
-	exists, err := swc.store.Exists(key)
+	exists, err := swc.store.Exists(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -133,5 +134,5 @@ func (swc *SlidingWindowCounter) Reset(key string) error {
 		return fmt.Errorf("bucket for key %s does not exist", key)
 	}
 
-	return swc.store.Delete(key)
+	return swc.store.Delete(ctx, key)
 }

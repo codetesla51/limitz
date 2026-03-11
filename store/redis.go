@@ -11,7 +11,6 @@ import (
 
 type RedisStore struct {
 	client *redis.Client
-	ctx    context.Context
 }
 
 func NewRedisStore(addr, username, password string) (*RedisStore, error) {
@@ -37,17 +36,13 @@ func NewRedisStore(addr, username, password string) (*RedisStore, error) {
 
 	return &RedisStore{
 		client: client,
-		ctx:    context.Background(),
 	}, nil
 }
 
-func (r *RedisStore) Get(key string) (interface{}, error) {
+func (r *RedisStore) Get(ctx context.Context, key string) (interface{}, error) {
 	if key == "" {
 		return nil, fmt.Errorf("key cannot be empty")
 	}
-
-	ctx, cancel := context.WithTimeout(r.ctx, 2*time.Second)
-	defer cancel()
 
 	val, err := r.client.Get(ctx, key).Result()
 	if err == redis.Nil {
@@ -60,7 +55,7 @@ func (r *RedisStore) Get(key string) (interface{}, error) {
 	return val, nil
 }
 
-func (r *RedisStore) Set(key string, value interface{}, ttl time.Duration) error {
+func (r *RedisStore) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	if key == "" {
 		return fmt.Errorf("key cannot be empty")
 	}
@@ -73,22 +68,16 @@ func (r *RedisStore) Set(key string, value interface{}, ttl time.Duration) error
 		return fmt.Errorf("failed to marshal value: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(r.ctx, 2*time.Second)
-	defer cancel()
-
 	if err := r.client.Set(ctx, key, string(jsonData), ttl).Err(); err != nil {
 		return fmt.Errorf("Redis Set error: %w", err)
 	}
 	return nil
 }
 
-func (r *RedisStore) Delete(key string) error {
+func (r *RedisStore) Delete(ctx context.Context, key string) error {
 	if key == "" {
 		return fmt.Errorf("key cannot be empty")
 	}
-
-	ctx, cancel := context.WithTimeout(r.ctx, 2*time.Second)
-	defer cancel()
 
 	deleted, err := r.client.Del(ctx, key).Result()
 	if err != nil {
@@ -100,13 +89,10 @@ func (r *RedisStore) Delete(key string) error {
 	return nil
 }
 
-func (r *RedisStore) Exists(key string) (bool, error) {
+func (r *RedisStore) Exists(ctx context.Context, key string) (bool, error) {
 	if key == "" {
 		return false, fmt.Errorf("key cannot be empty")
 	}
-
-	ctx, cancel := context.WithTimeout(r.ctx, 2*time.Second)
-	defer cancel()
 
 	exists, err := r.client.Exists(ctx, key).Result()
 	if err != nil {
