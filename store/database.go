@@ -53,7 +53,7 @@ func (ds *DatabaseStore) Get(ctx context.Context, key string) (interface{}, erro
 	var entry RateLimitEntry
 
 	// Query and check if expired
-	result := ds.db.Where("key = ? AND expires_at > ?", key, time.Now()).First(&entry)
+	result := ds.db.WithContext(ctx).Where("key = ? AND expires_at > ?", key, time.Now()).First(&entry)
 
 	if result.Error == gorm.ErrRecordNotFound {
 		return nil, fmt.Errorf("key not found")
@@ -91,7 +91,7 @@ func (ds *DatabaseStore) Set(ctx context.Context, key string, value interface{},
 	}
 
 	// Upsert (insert or update)
-	if err := ds.db.Save(&entry).Error; err != nil {
+	if err := ds.db.WithContext(ctx).Save(&entry).Error; err != nil {
 		return fmt.Errorf("database Set error: %w", err)
 	}
 	return nil
@@ -103,7 +103,7 @@ func (ds *DatabaseStore) Delete(ctx context.Context, key string) error {
 		return fmt.Errorf("key cannot be empty")
 	}
 
-	result := ds.db.Delete(&RateLimitEntry{}, "key = ?", key)
+	result := ds.db.WithContext(ctx).Delete(&RateLimitEntry{}, "key = ?", key)
 	if result.Error != nil {
 		return fmt.Errorf("database Delete error: %w", result.Error)
 	}
@@ -120,7 +120,7 @@ func (ds *DatabaseStore) Exists(ctx context.Context, key string) (bool, error) {
 	}
 
 	var count int64
-	if err := ds.db.Model(&RateLimitEntry{}).
+	if err := ds.db.WithContext(ctx).Model(&RateLimitEntry{}).
 		Where("key = ? AND expires_at > ?", key, time.Now()).
 		Count(&count).Error; err != nil {
 		return false, fmt.Errorf("database Exists error: %w", err)
