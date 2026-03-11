@@ -6,6 +6,7 @@ A high-performance, extensible rate limiting library for Go. Limitz provides fiv
 
 - Five rate limiting algorithms out of the box
 - Pluggable storage backends (in-memory, Redis, PostgreSQL)
+- Context-aware — cancellation and deadlines propagate through all operations
 - Thread-safe with mutex-based synchronization
 - Common interface across all algorithms for easy swapping
 - Sub-millisecond performance on most algorithms
@@ -28,6 +29,7 @@ go get github.com/codetesla51/limitz
 package main
 
 import (
+    "context"
     "fmt"
     "time"
 
@@ -41,7 +43,8 @@ func main() {
 
     limiter := algorithms.NewTokenBucket(10, 5, s)
 
-    result, err := limiter.Allow("user-123")
+    ctx := context.Background()
+    result, err := limiter.Allow(ctx, "user-123")
     if err != nil {
         fmt.Printf("Error: %v\n", err)
         return
@@ -55,14 +58,14 @@ func main() {
 }
 ```
 
-## Algorithms
+## Interface
 
 All algorithms implement the `RateLimiter` interface:
 
 ```go
 type RateLimiter interface {
-    Allow(key string) (Result, error)
-    Reset(key string) error
+    Allow(ctx context.Context, key string) (Result, error)
+    Reset(ctx context.Context, key string) error
 }
 ```
 
@@ -77,7 +80,27 @@ type Result struct {
 }
 ```
 
+### Context Support
+
+Every method accepts a `context.Context`. This means:
+
+- If the caller's context is cancelled or times out, the operation aborts immediately
+- In HTTP handlers, pass `r.Context()` directly — it cancels automatically if the client disconnects
+- You can set per-operation timeouts using `context.WithTimeout`
+
+```go
+// In an HTTP handler — context cancels if client disconnects
+result, err := limiter.Allow(r.Context(), r.RemoteAddr)
+
+// With an explicit timeout on the rate limit check
+ctx, cancel := context.WithTimeout(r.Context(), 100*time.Millisecond)
+defer cancel()
+result, err := limiter.Allow(ctx, r.RemoteAddr)
+```
+
 ---
+
+## Algorithms
 
 ### Token Bucket
 
@@ -155,13 +178,15 @@ Best for: Smoothing out bursty traffic into a steady stream.
 
 ## Algorithm Comparison
 
-| Algorithm              | Burst Handling | Memory Usage | Accuracy   | Boundary Issues |
-|------------------------|---------------|-------------|------------|-----------------|
-| Token Bucket           | Allows bursts | Low         | Good       | None            |
-| Fixed Window           | Allows bursts | Low         | Moderate   | Yes             |
-| Sliding Window (Log)   | No bursts     | High        | Exact      | None            |
-| Sliding Window Counter | Limited       | Low         | Approximate| Minimal         |
-| Leaky Bucket           | No bursts     | Low         | Good       | None            |
+| Algorithm              | Burst Handling | Memory Usage | Accuracy    | Boundary Issues |
+|------------------------|----------------|--------------|-------------|-----------------|
+| Token Bucket           | Allows bursts  | Low          | Good        | None            |
+| Fixed Window           | Allows bursts  | Low          | Moderate    | Yes             |
+| Sliding Window (Log)   | No bursts      | High         | Exact       | None            |
+| Sliding Window Counter | Limited        | Low          | Approximate | Minimal         |
+| Leaky Bucket           | No bursts      | Low          | Good        | None            |
+
+---
 
 ## Storage Backends
 
@@ -169,10 +194,10 @@ All storage backends implement the `Store` interface:
 
 ```go
 type Store interface {
-    Get(key string) (interface{}, error)
-    Set(key string, value interface{}, ttl time.Duration) error
-    Delete(key string) error
-    Exists(key string) (bool, error)
+    Get(ctx context.Context, key string) (interface{}, error)
+    Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+    Delete(ctx context.Context, key string) error
+    Exists(ctx context.Context, key string) (bool, error)
 }
 ```
 
@@ -202,9 +227,8 @@ if err != nil {
 defer s.Close()
 ```
 
-**Connection Configuration:**
-
 The Redis store uses the following connection settings:
+
 ```go
 client := redis.NewClient(&redis.Options{
     Addr:         addr,
@@ -216,13 +240,12 @@ client := redis.NewClient(&redis.Options{
 })
 ```
 
-**Features:**
 - Shared state across instances
 - Persistent across restarts
 - Requires a running Redis server
 - Pass empty strings for username/password if authentication is not configured
 - Automatic connection retry (up to 3 attempts)
-- Connection pooling for better performance
+- The caller's context is passed directly to every Redis operation — if the context times out or is cancelled, the Redis call aborts
 
 ### PostgreSQL
 
@@ -240,17 +263,20 @@ defer s.Close()
 - Durable, persistent storage
 - Leverages existing database infrastructure
 - Higher latency compared to in-memory and Redis
+- The caller's context is passed to every query via `db.WithContext(ctx)`
 - Call `s.CleanupExpired()` periodically to remove stale entries
+
+---
 
 ## HTTP Middleware Example
 
-Limitz is a bare-metal library with no HTTP dependencies. This keeps it flexible for use with any framework. Here is an example middleware for `net/http`:
+Limitz has no HTTP dependencies. Here is an example middleware for `net/http`:
 
 ```go
 func RateLimitMiddleware(limiter algorithms.RateLimiter) func(http.Handler) http.Handler {
     return func(next http.Handler) http.Handler {
         return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            result, err := limiter.Allow(r.RemoteAddr)
+            result, err := limiter.Allow(r.Context(), r.RemoteAddr)
             if err != nil {
                 http.Error(w, "Internal Server Error", http.StatusInternalServerError)
                 return
@@ -281,33 +307,22 @@ mux.HandleFunc("/", handler)
 http.ListenAndServe(":8080", RateLimitMiddleware(limiter)(mux))
 ```
 
+---
+
 ## Examples
 
 ### Basic Rate Limiting
 
-Limit a user to 5 requests per second:
-
 ```go
-package main
+s := store.NewMemoryStore()
+defer s.Close()
 
-import (
-    "fmt"
-    "time"
+ctx := context.Background()
+limiter := algorithms.NewFixedWindow(5, 1*time.Second, s)
 
-    "github.com/codetesla51/limitz/algorithms"
-    "github.com/codetesla51/limitz/store"
-)
-
-func main() {
-    s := store.NewMemoryStore()
-    defer s.Close()
-
-    limiter := algorithms.NewFixedWindow(5, 1*time.Second, s)
-
-    for i := 0; i < 8; i++ {
-        result, _ := limiter.Allow("user-1")
-        fmt.Printf("Request %d: allowed=%v remaining=%d\n", i+1, result.Allowed, result.Remaining)
-    }
+for i := 0; i < 8; i++ {
+    result, _ := limiter.Allow(ctx, "user-1")
+    fmt.Printf("Request %d: allowed=%v remaining=%d\n", i+1, result.Allowed, result.Remaining)
 }
 ```
 
@@ -332,47 +347,42 @@ Each key gets its own independent rate limit:
 s := store.NewMemoryStore()
 defer s.Close()
 
+ctx := context.Background()
 limiter := algorithms.NewTokenBucket(5, 2, s)
 
-// Each user has a separate bucket
-limiter.Allow("alice")   // allowed, alice has 4 remaining
-limiter.Allow("alice")   // allowed, alice has 3 remaining
-limiter.Allow("bob")     // allowed, bob has 4 remaining (independent)
+limiter.Allow(ctx, "alice") // allowed, alice has 4 remaining
+limiter.Allow(ctx, "alice") // allowed, alice has 3 remaining
+limiter.Allow(ctx, "bob")   // allowed, bob has 4 remaining (independent)
 ```
 
-### API Endpoint Rate Limiting
+### Per-Endpoint Rate Limiting
 
 Use composite keys to rate limit per user per endpoint:
 
 ```go
+ctx := context.Background()
 s := store.NewMemoryStore()
 defer s.Close()
 
-// 10 requests per minute for write endpoints
 writeLimiter := algorithms.NewSlidingWindowCounter(10, 1*time.Minute, s)
-
-// 100 requests per minute for read endpoints
 readLimiter := algorithms.NewSlidingWindowCounter(100, 1*time.Minute, s)
 
 userID := "user-42"
-
-// Rate limit by user + endpoint
-writeLimiter.Allow(userID + ":/api/posts")
-readLimiter.Allow(userID + ":/api/feed")
+writeLimiter.Allow(ctx, userID+":/api/posts")
+readLimiter.Allow(ctx, userID+":/api/feed")
 ```
 
 ### Handling Rate Limit Results
 
-Use `RetryAfter` to tell clients when to retry:
-
 ```go
+ctx := context.Background()
 s := store.NewMemoryStore()
 defer s.Close()
 
 limiter := algorithms.NewLeakyBucket(3, 1, s)
 
 for i := 0; i < 5; i++ {
-    result, err := limiter.Allow("client-1")
+    result, err := limiter.Allow(ctx, "client-1")
     if err != nil {
         fmt.Printf("Error: %v\n", err)
         continue
@@ -388,38 +398,35 @@ for i := 0; i < 5; i++ {
 
 ### Resetting a Rate Limit
 
-Manually reset a user's rate limit counter:
-
 ```go
+ctx := context.Background()
 s := store.NewMemoryStore()
 defer s.Close()
 
 limiter := algorithms.NewTokenBucket(5, 1, s)
 
-// Exhaust the limit
 for i := 0; i < 5; i++ {
-    limiter.Allow("user-1")
+    limiter.Allow(ctx, "user-1")
 }
 
-result, _ := limiter.Allow("user-1")
+result, _ := limiter.Allow(ctx, "user-1")
 fmt.Println(result.Allowed) // false
 
-// Reset the bucket
-limiter.Reset("user-1")
+limiter.Reset(ctx, "user-1")
 
-result, _ = limiter.Allow("user-1")
+result, _ = limiter.Allow(ctx, "user-1")
 fmt.Println(result.Allowed) // true
 ```
 
 ### Swapping Algorithms
 
-All algorithms share the same interface, so swapping is a one-line change:
+All algorithms share the same interface:
 
 ```go
+ctx := context.Background()
 s := store.NewMemoryStore()
 defer s.Close()
 
-// Swap between any algorithm without changing the rest of your code
 var limiter algorithms.RateLimiter
 
 limiter = algorithms.NewTokenBucket(100, 10, s)
@@ -428,15 +435,14 @@ limiter = algorithms.NewTokenBucket(100, 10, s)
 // limiter = algorithms.NewSlidingWindow(100, 1*time.Minute, s)
 // limiter = algorithms.NewSlidingWindowCounter(100, 1*time.Minute, s)
 
-result, _ := limiter.Allow("user-1")
+result, _ := limiter.Allow(ctx, "user-1")
 fmt.Println(result.Allowed)
 ```
 
 ### Distributed Rate Limiting with Redis
 
-Share rate limit state across multiple application instances:
-
 ```go
+ctx := context.Background()
 s, err := store.NewRedisStore("localhost:6379", "", "")
 if err != nil {
     log.Fatal(err)
@@ -445,10 +451,11 @@ defer s.Close()
 
 limiter := algorithms.NewSlidingWindowCounter(1000, 1*time.Minute, s)
 
-// All instances of your application share the same counters
-result, _ := limiter.Allow("api-key-xyz")
+result, _ := limiter.Allow(ctx, "api-key-xyz")
 fmt.Printf("Allowed: %v, Remaining: %d\n", result.Allowed, result.Remaining)
 ```
+
+---
 
 ## Benchmarks
 
@@ -456,35 +463,35 @@ Benchmarks were run on an Intel Core i5-6300U @ 2.40GHz, 4 threads, Linux/amd64.
 
 ### Single User (Sequential)
 
-| Algorithm              | ops/sec   | ns/op  | B/op  | allocs/op |
-|------------------------|-----------|--------|-------|-----------|
-| Token Bucket           | 885,632   | 1,180  | 48    | 1         |
-| Fixed Window           | 861,370   | 1,217  | 48    | 1         |
-| Leaky Bucket           | 1,096,038 | 1,234  | 48    | 1         |
-| Sliding Window Counter | 980,431   | 1,361  | 48    | 1         |
-| Sliding Window (Log)   | 216,994   | 6,483  | 2,087 | 8         |
+| Algorithm              | ops/sec   | ns/op | B/op  | allocs/op |
+|------------------------|-----------|-------|-------|-----------|
+| Token Bucket           | 885,632   | 1,180 | 48    | 1         |
+| Fixed Window           | 861,370   | 1,217 | 48    | 1         |
+| Leaky Bucket           | 1,096,038 | 1,234 | 48    | 1         |
+| Sliding Window Counter | 980,431   | 1,361 | 48    | 1         |
+| Sliding Window (Log)   | 216,994   | 6,483 | 2,087 | 8         |
 
 ### Multiple Users (Sequential)
 
-| Algorithm              | ops/sec | ns/op  | B/op  | allocs/op |
-|------------------------|---------|--------|-------|-----------|
-| Token Bucket           | 795,757 | 1,542  | 55    | 2         |
-| Fixed Window           | 751,354 | 1,464  | 55    | 2         |
-| Leaky Bucket           | 713,905 | 1,528  | 55    | 2         |
-| Sliding Window Counter | 795,951 | 1,413  | 55    | 2         |
-| Sliding Window (Log)   | 500,776 | 6,316  | 1,921 | 9         |
+| Algorithm              | ops/sec | ns/op | B/op  | allocs/op |
+|------------------------|---------|-------|-------|-----------|
+| Token Bucket           | 795,757 | 1,542 | 55    | 2         |
+| Fixed Window           | 751,354 | 1,464 | 55    | 2         |
+| Leaky Bucket           | 713,905 | 1,528 | 55    | 2         |
+| Sliding Window Counter | 795,951 | 1,413 | 55    | 2         |
+| Sliding Window (Log)   | 500,776 | 6,316 | 1,921 | 9         |
 
 ### Concurrent (Parallel)
 
-| Algorithm              | ops/sec | ns/op    | B/op    | allocs/op |
-|------------------------|---------|----------|---------|-----------|
-| Token Bucket           | 604,676 | 1,749    | 48      | 1         |
-| Fixed Window           | 653,539 | 1,949    | 48      | 1         |
-| Leaky Bucket           | 666,572 | 2,010    | 48      | 1         |
-| Sliding Window Counter | 592,909 | 1,996    | 48      | 1         |
-| Sliding Window (Log)   | 10,000  | 178,213  | 108,436 | 16        |
+| Algorithm              | ops/sec | ns/op   | B/op    | allocs/op |
+|------------------------|---------|---------|---------|-----------|
+| Token Bucket           | 604,676 | 1,749   | 48      | 1         |
+| Fixed Window           | 653,539 | 1,949   | 48      | 1         |
+| Leaky Bucket           | 666,572 | 2,010   | 48      | 1         |
+| Sliding Window Counter | 592,909 | 1,996   | 48      | 1         |
+| Sliding Window (Log)   | 10,000  | 178,213 | 108,436 | 16        |
 
-Token Bucket, Fixed Window, Leaky Bucket, and Sliding Window Counter all perform within the same range at roughly 1,200-2,000 ns/op with minimal allocations. Sliding Window (Log) is significantly slower due to the overhead of storing and filtering individual timestamps, and is not recommended for high-throughput concurrent workloads.
+Token Bucket, Fixed Window, Leaky Bucket, and Sliding Window Counter all perform within the same range at roughly 1,200–2,000 ns/op with minimal allocations. Sliding Window (Log) is significantly slower due to the overhead of storing and filtering individual timestamps, and is not recommended for high-throughput concurrent workloads.
 
 Run benchmarks locally:
 
@@ -492,13 +499,15 @@ Run benchmarks locally:
 go test ./algorithms -bench=. -benchmem
 ```
 
-## Testing
+---
 
-Run the full test suite:
+## Testing
 
 ```bash
 go test ./algorithms -v
 ```
+
+---
 
 ## License
 
